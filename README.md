@@ -1,2 +1,4 @@
 # libSambilight
-Ambilight Clone for Samsung E/F/H Series Led TVs compatible with Adalight/Ardulight
+Samsung Samygo library for ambient lighting
+
+More Info at https://forum.samygo.tv/viewtopic.php?p=110501
