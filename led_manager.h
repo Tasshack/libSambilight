@@ -1,6 +1,6 @@
 /*
  *  tasshack
- *  (c) 2019
+ *  (c) 2019 - 2021
  *
  *  License: GPLv3
  *
@@ -16,27 +16,21 @@ typedef struct {
 	unsigned short v_leds_count;
 	unsigned short bottom_gap;
 	unsigned short start_offset;
-	unsigned long image_width;
-	unsigned long image_height;
-	unsigned char color_order[3];
+	unsigned short image_width;
+	unsigned short image_height;
+	char color_order[3];
 	unsigned char led_order;
 } led_manager_config_t;
 
 int led_manager_argb8888_to_leds(const unsigned char *buffer, unsigned char *data);
-
 int led_manager_init(led_manager_config_t * config, led_manager_profile_t * profile);
-
-int led_manager_set_profile(led_manager_profile_t * profile);
-
+int led_manager_set_profile(const led_manager_profile_t* profile);
 int led_manager_get_profile(led_manager_profile_t * profile);
-
+int led_manager_print_area(char * buffer);
 unsigned int led_manager_get_profile_index();
-
 int led_manager_set_state(unsigned char state);
-
 int led_manager_get_state();
-
-int led_manager_set_brightness(unsigned int brightness);
-
-int led_manager_get_brightness();
+int led_manager_set_intensity(unsigned int intensity);
+int led_manager_get_intensity();
+unsigned char led_manager_get_borders(const unsigned char* buffer, unsigned short* h_border, unsigned short* v_border);
 #endif

@@ -1,6 +1,6 @@
 /*
  *  tasshack
- *  (c) 2019
+ *  (c) 2019 - 2021
  *
  *  License: GPLv3
  *
@@ -11,97 +11,66 @@
 
 typedef struct {
 	unsigned short index;
-	const char * name;
+	char name[10];
 	unsigned short saturation_gain_percent;
 	unsigned short value_gain_percent;
+	short brightness_correction;
 	unsigned short horizontal_depth_percent;
 	unsigned short vertical_depth_percent;
-	short overlap_percent; // TODO
-	short h_padding_px;
-	short v_padding_px;
-	unsigned short smoothing_fps; // TODO
-	unsigned char black_border; // TODO
+	short overlap_percent;
+	short h_padding_percent;
+	short v_padding_percent;
 } led_manager_profile_t;
 
-static led_manager_profile_t led_profiles[] = {
+static led_manager_profile_t led_profiles[10] = {
 	{
 		1,		/// index
 		"16:9",	/// name
 		130,	/// saturation_gain_percent
-		100,	/// value_gain_percent
-		7,		/// horizontal_depth_percent
-		12,		/// vertical_depth_percent
+		90,		/// value_gain_percent
+		-7,		/// brightness_correction
+		26,		/// horizontal_depth_percent
+		15,		/// vertical_depth_percent
 		0,		/// overlap_percent
-		0,		/// h_padding_px
-		0,		/// v_padding_px
-		0,		/// smoothing_fps
-		0		/// black_border
+		0,		/// h_padding_percent
+		0,		/// v_padding_percent
 	},
 	{
 		2,		/// index
 		"21:9",	/// name
-		130,	/// saturation_gain_percent
-		100,	/// value_gain_percent
-		7,		/// horizontal_depth_percent
-		12,		/// vertical_depth_percent
+		120,	/// saturation_gain_percent
+		90,		/// value_gain_percent
+		-7,		/// brightness_correction
+		15,		/// horizontal_depth_percent
+		7,		/// vertical_depth_percent
 		0,		/// overlap_percent
-		10,		/// h_padding_px
-		0,		/// v_padding_px
-		0,		/// smoothing_fps
-		0		/// black_border
+		12,		/// h_padding_percent
+		0,		/// v_padding_percent
 	},
 	{
 		3,		/// index
 		"4:3",	/// name
-		120,	/// saturation_gain_percent
+		100,	/// saturation_gain_percent
 		100,	/// value_gain_percent
-		7,		/// horizontal_depth_percent
+		0,		/// brightness_correction
+		12,		/// horizontal_depth_percent
 		12,		/// vertical_depth_percent
 		0,		/// overlap_percent
-		0,		/// h_padding_px
-		20,		/// v_padding_px
-		0,		/// smoothing_fps
-		0		/// black_border
+		0,		/// h_padding_percent
+		12,		/// v_padding_percent
 	},
 	{
 		4,		/// index
 		"3:2",	/// name
-		120,	/// saturation_gain_percent
+		100,	/// saturation_gain_percent
 		100,	/// value_gain_percent
-		7,		/// horizontal_depth_percent
+		0,		/// brightness_correction
+		12,		/// horizontal_depth_percent
 		12,		/// vertical_depth_percent
 		0,		/// overlap_percent
-		0,		/// h_padding_px
-		12,		/// v_padding_px
-		0,		/// smoothing_fps
-		0		/// black_border
+		0,		/// h_padding_percent
+		8,		/// v_padding_percent
 	},
-	//{
-	//	5,		/// index
-	//	"Game",	/// name
-	//	150,	/// saturation_gain_percent
-	//	100,	/// value_gain_percent
-	//	10,		/// horizontal_depth_percent
-	//	20,		/// vertical_depth_percent
-	//	0,		/// overlap_percent
-	//	15,		/// h_padding_px
-	//	30,		/// v_padding_px
-	//	0,		/// smoothing_fps
-	//	0		/// black_border
-	//},
-	//{
-	//	6,		/// index
-	//	"Auto",	/// name
-	//	150,	/// saturation_gain_percent
-	//	100,	/// value_gain_percent
-	//	10,		/// horizontal_depth_percent
-	//	20,		/// vertical_depth_percent
-	//	0,		/// overlap_percent
-	//	0,		/// h_padding_px
-	//	0,		/// v_padding_px
-	//	0,		/// smoothing_fps
-	//	0		/// black_border
-	//},
 	{ 0,0,0,0,0,0,0,0,0,0 } /// Terminator
 };
 #endif

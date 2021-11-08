@@ -8,18 +8,17 @@
  *  zoelechat
  *	(c) 2015
  *
- *  adONis
- *  (c) 2018
- *
  *  tasshack
- *  (c) 2019
+ *  (c) 2019 - 2021
  *
  *  License: GPLv3
  *
  */
  //////////////////////////////////////////////////////////////////////////////
 
+#include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <termios.h>
 #include <unistd.h>
 #include <errno.h>
@@ -29,75 +28,81 @@
 #include <sys/mman.h>
 #include <sys/time.h> 
 #include <sys/stat.h>  
-#include <syslog.h>
-#include <stdint.h>
-#include <stdlib.h>
 #include <fcntl.h>
 #include <dlfcn.h>
-#include <memory.h>
 #include <glob.h>
 #include <stdarg.h>
 #include <pthread.h>
-#include <execinfo.h>
-
-#include "common.h"
-#include "hook.h"
-
-#include "led_manager.h"
 
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.0.0"
+#define LIB_VERSION "v1.0.4"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
-#define WIDTH 160 //96
-#define HEIGHT 90 //54
 
+#include "common.h"
+#include "hook.h"
+#include "led_manager.h"
 #include "util.h"
+#include "jsmn.h"
 
-unsigned char tv_remote_enabled = 1;
-unsigned char external_led_enabled = 1;
-unsigned char external_led_state = 1;
-STATIC int show_msg_box(const char * text);
+
+unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 1, tv_remote_enabled = 1, gfx_lib = 1;
+unsigned long baudrate = 921600, fps_test_frames = 0, capture_frequency = 20;
+led_manager_config_t led_config = { 35, 19, 7, 68, 960, 540, "RGB", 1 };
+char device[100] = "/dev/ttyUSB0";
+
+STATIC int show_msg_box(const char* text);
 
 //////////////////////////////////////////////////////////////////////////////
 
 typedef union {
-	const void *procs[25];
+	const void* procs[34];
 	struct {
-		const int(*SdDisplay_CaptureScreenE)(int *CDSize, unsigned char *buffer, int *CaptureInfo);
-		const int(*SdDisplay_CaptureScreenF)(int *CDSize, unsigned char *buffer, int *CaptureInfo, int zero);
-		const int(*SdDisplay_CaptureScreenH)(int *CDSize, unsigned char *buffer, int *CaptureInfo, int *rect, int zero);
+		const int(*SdDisplay_CaptureScreenE)(int*, unsigned char*, int*);
+		const int(*SdDisplay_CaptureScreenF)(int*, unsigned char*, int*, int);
+		const int(*SdDisplay_CaptureScreenH)(int*, unsigned char*, int*, int*, int);
 
-		int *g_IPanel;
-		void *g_TaskManager;
-		void **g_pTaskManager;
-		void **g_TVViewerMgr;
-		void **g_pTVViewerMgr;
-		int **g_TVViewerWStringEng;
-		int **g_WarningWStringEng;
-		void **g_pCustomTextResMgr;
-		int **g_CustomTextWStringEng;
-		void *(*CResourceManager_GetWString)(void *TVViewerMgr, int stringnum);
-		const char *(*PCWString_Convert2)(unsigned short *w_string, char *c_string, int len, int isUTF8, int *zero);
-		void *(*CTaskManager_GetApplication)(void *taskMan, int two);
-		void *(*CViewerApp_GetViewerManager)(void *this);
-		void *(*ALMOND0300_CDesktopManager_GetInstance)(int one);
-		void *(*ALMOND0300_CDesktopManager_GetApplication)(void *this, char *viewerstring, int zero);
-		const int(*CViewerManager_ShowSystemAlert)(void *this, int num, int one);
-		const int(*CViewerManager_ShowSystemAlertB)(void *this, int num);
-		const int(*CViewerManager_ShowCustomText)(void *this, int num);
-		const int(*CViewerManager_ShowCustomTextF)(void *this, int num, int one);
-		const int(*CViewerManager_ShowRCMode)(void *this, int num);
-		const int(*CCustomTextApp_t_OnActivated)(void *this, char *nothing, int num);
+		int* g_IPanel;
+		void* g_TaskManager;
+		void** g_pTaskManager;
+		void** g_TVViewerMgr;
+		void** g_pTVViewerMgr;
+		int** g_TVViewerWStringEng;
+		int** g_WarningWStringEng;
+		void** g_pCustomTextResMgr;
+		int** g_CustomTextWStringEng;
+		void* (*CResourceManager_GetWString)(void* this, int);
+		const char* (*PCWString_Convert2)(unsigned short*, char*, int, int, int*);
+		void* (*CTaskManager_GetApplication)(void* this, int);
+		void* (*CViewerApp_GetViewerManager)(void* this);
+		void* (*ALMOND0300_CDesktopManager_GetInstance)(int);
+		void* (*ALMOND0300_CDesktopManager_GetApplication)(void* this, char*, int);
+		const int(*CViewerManager_ShowSystemAlert)(void* this, int, int);
+		const int(*CViewerManager_ShowSystemAlertB)(void* this, int);
+		const int(*CViewerManager_ShowCustomText)(void* this, int);
+		const int(*CViewerManager_ShowCustomTextF)(void* this, int, int);
+		const int(*CViewerManager_ShowRCMode)(void* this, int);
+		const int(*CCustomTextApp_t_OnActivated)(void* this, char*, int);
+
+		void* (*MsOS_PA2KSEG0)(int);
+		const int (*MsOS_Dcache_Flush)(void*, int);
+		void* (*MApi_MMAP_GetInfo)(int, int);
+		void (*MApi_XC_W2BYTEMSK)(int, int, int);
+		const int (*gfx_InitNonGAPlane)(void*, unsigned int, unsigned int, int, int);
+		const int (*gfx_ReleasePlane)(void*, int);
+		const int (*gfx_CaptureFrame)(void*, int, int, unsigned int, unsigned int, unsigned int, unsigned int, int, int, int, int);
+		const int (*gfx_BitBltScale)(void*, unsigned int, unsigned int, unsigned int, unsigned int, void*, int, int, unsigned int, unsigned int);
+		const int (*MApi_GOP_DWIN_CaptureOneFrame)();
+		const int (*MApi_GOP_DWIN_GetWinProperty)(void*);
 	};
 } samyGO_whacky_t;
 
 samyGO_whacky_t hCTX =
 {
-	// libScreenshot
+	// libScreenShot (libSDAL.so)
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP23SdDisplay_CaptureInfo_t",
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP23SdDisplay_CaptureInfo_t12SdMainChip_k",
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP24SdVideoCommonFrameData_tP8SdRect_t12SdMainChip_k",
@@ -124,12 +129,24 @@ samyGO_whacky_t hCTX =
 	(const void*)"_ZN14CViewerManager14ShowCustomTextEib",
 	(const void*)"_ZN14CViewerManager10ShowRCModeEi",
 	(const void*)"_ZN14CCustomTextApp13t_OnActivatedEPKci",
+
+	// libUTOPIA.so
+	(const void*)"MsOS_PA2KSEG0",
+	(const void*)"MsOS_Dcache_Flush",
+	(const void*)"MApi_MMAP_GetInfo",
+	(const void*)"MApi_XC_W2BYTEMSK",
+	(const void*)"gfx_InitNonGAPlane",
+	(const void*)"gfx_ReleasePlane",
+	(const void*)"gfx_CaptureFrame",
+	(const void*)"gfx_BitBltScale",
+	(const void*)"MApi_GOP_DWIN_CaptureOneFrame",
+	(const void*)"MApi_GOP_DWIN_GetWinProperty"
 };
 
-_HOOK_IMPL(int, CViewerApp_t_OnInputOccur, void *this, int *a2)
+_HOOK_IMPL(int, CViewerApp_t_OnInputOccur, void* this, int* a2)
 {
 	char key = (char)a2[5];
-	const char * msgHeader = "Ambient Lighting";
+	const char* msgHeader = "Ambient Lighting";
 	char msg[100];
 	unsigned int index;
 
@@ -148,31 +165,46 @@ _HOOK_IMPL(int, CViewerApp_t_OnInputOccur, void *this, int *a2)
 	case 20: // KEY_GREEN
 		index = led_manager_get_profile_index();
 		if (led_profiles[index].index > 0) {
-			index++;
+			if (black_border_enabled && black_border_state) {
+				black_border_state = 0;
+			}
+			else {
+				index++;
+			}
 		}
 		else {
+			if (black_border_enabled) {
+				black_border_state = !black_border_state;
+			}
 			index = 1;
 		}
-		led_manager_set_profile(&led_profiles[index - 1]);
-		sprintf(msg, "%s %s Mode", msgHeader, led_profiles[index - 1].name);
+
+		if (black_border_state) {
+			sprintf(msg, "%s Auto Mode", msgHeader);
+		}
+		else {
+			sprintf(msg, "%s %s Mode", msgHeader, led_profiles[index - 1].name);
+		}
 		show_msg_box(msg);
+
+		led_manager_set_profile(&led_profiles[index - 1]);
 		return 1;
 	case 21: // KEY_YELLOW
-		switch (led_manager_get_brightness()) {
+		switch (led_manager_get_intensity()) {
 		case 100:
-			led_manager_set_brightness(75);
+			led_manager_set_intensity(75);
 			break;
 		case 75:
-			led_manager_set_brightness(50);
+			led_manager_set_intensity(50);
 			break;
 		case 50:
-			led_manager_set_brightness(25);
+			led_manager_set_intensity(25);
 			break;
 		default:;
-			led_manager_set_brightness(100);
+			led_manager_set_intensity(100);
 			break;
 		}
-		sprintf(msg, "%s %%%d", msgHeader, led_manager_get_brightness());
+		sprintf(msg, "%s %%%d", msgHeader, led_manager_get_intensity());
 		show_msg_box(msg);
 		return 1;
 	case 22: // KEY_BLUE
@@ -207,187 +239,244 @@ STATIC hook_entry_t LIB_HOOKS[] =
 #undef _HOOK_ENTRY
 };
 
+void* sambiligth_thread(void* params) {
 
-//////////////////////////////////////////////////////////////////////////////
-STATIC int _hooked = 0;
-EXTERN_C void lib_init(void *_h, const char *libpath)
-{
-	if (_hooked) {
-		log("Injecting once is enough!\n");
-		return;
-	}
-
-	int argc, CDSize[2], CaptureInfo[20] = { 0 }, SdRect[4] = { 0 }, led_test = 0;
-	unsigned char *buffer;
-	char *argv[200], device[100] = "/dev/ttyUSB0", * optstr;
+	int capture_info[20] = { 0 }, rect[4] = { 0 }, cd_size[2] = { 0, 0 }, win_property[20], serial;
+	unsigned char* buffer, * data;
+	unsigned long fps_counter = 0, counter = 0, c;
+	unsigned short leds_count, data_size, header_size = 6, h_border = 0, v_border = 0, h_new_border = 0, v_new_border = 0;
+	unsigned long fps_test_remaining_frames = 0, bytesWritten;
+	clock_t capture_begin, capture_end, fps_begin, fps_end, elapsed;
+	unsigned int panel_width, panel_heigth, width, heigth;
+	void* frame_buffer, * out_buffer;
+	int* out_buffer_info, * frame_buffer_info;
 	typedef int func(void);
-	func *f;
-	unsigned char *data;
-	unsigned short leds_count, data_size, bytesWritten, bytesRemaining;
 
-	unlink(LOG_FILE);
-	log("SamyGO "LIB_TV_MODELS" lib"LIB_NAME" "LIB_VERSION" - (c) tasshack 2019\n");
-	void *h = dlopen(0, RTLD_LAZY);
-	if (!h) {
-		char *serr = dlerror();
-		return;
-	}
-
-	patch_adbg_CheckSystem(h);
-
-	samyGO_whacky_t_init(h, &hCTX, ARRAYSIZE(hCTX.procs));
-
-	led_manager_config_t led_config = {
-		35,		/// h_leds_count
-		19,		/// v_leds_count
-		7,		/// bottom_gap
-		68,		/// start_offset
-		WIDTH,	/// image_width
-		HEIGHT,	/// image_height
-		"RGB",	/// color_order
-		0,		/// led_order
-	};
-
-	argc = getArgCArgV(libpath, argv);
-		
-	optstr = getOptArg(argv, argc, "H_LEDS:");
-	if (optstr && strlen(optstr))
-		led_config.h_leds_count = atoi(optstr);
-
-	optstr = getOptArg(argv, argc, "V_LEDS:");
-	if (optstr && strlen(optstr))
-		led_config.v_leds_count= atoi(optstr);
-
-	optstr = getOptArg(argv, argc, "BOTTOM_GAP:");
-	if (optstr && strlen(optstr))
-		led_config.bottom_gap = atoi(optstr);
-
-	optstr = getOptArg(argv, argc, "START_OFFSET:");
-	if (optstr && strlen(optstr))
-		led_config.start_offset = atoi(optstr);
-
-	optstr = getOptArg(argv, argc, "CLOCKWISE");
-	if (optstr)
-		led_config.led_order = atoi(optstr);
-
-	optstr = getOptArg(argv, argc, "COLOR_ORDER");
-	if (optstr && strlen(optstr) == 3)
-		strncpy(led_config.color_order, optstr, 3);	
-
-	optstr = getOptArg(argv, argc, "BLACK_BORDER:");
-	if (optstr && strlen(optstr))
-		led_profiles[0].black_border = atoi(optstr);
-
-	optstr = getOptArg(argv, argc, "SMOOTHING:");
-	if (optstr && strlen(optstr))
-		led_profiles[0].smoothing_fps = atoi(optstr);
-
-	optstr = getOptArg(argv, argc, "TV_REMOTE");
-	if (optstr)
-		tv_remote_enabled = 1;
-
-	optstr = getOptArg(argv, argc, "EXTERNAL");
-	if (optstr)
-		external_led_enabled = 1;
-
-	optstr = getOptArg(argv, argc, "DEVICE:");
-	if (optstr && strlen(optstr))
-		strncpy(device, optstr, strlen(optstr));
-
-	optstr = getOptArg(argv, argc, "TEST");
-	if (optstr)
-		led_test = 1;
-
-	if (tv_remote_enabled) {
-		if (dyn_sym_tab_init(h, dyn_hook_fn_tab, ARRAYSIZE(dyn_hook_fn_tab)) >= 0) {
-			set_hooks(LIB_HOOKS, ARRAYSIZE(LIB_HOOKS));
-			_hooked = 1;
-		}
-	}
+	pthread_detach(pthread_self());
 
 	log("Sambilight started\n");
-	int serial = open(device, O_RDWR | O_NOCTTY);
+	serial = open(device, O_WRONLY | O_NOCTTY);
 	if (serial >= 0) {
 		struct termios SerialPortSettings;
 		tcgetattr(serial, &SerialPortSettings);
-		cfsetispeed(&SerialPortSettings, B921600);
-		cfsetospeed(&SerialPortSettings, B921600);
+		switch (baudrate) {
+		case 115200:
+			cfsetispeed(&SerialPortSettings, B115200);
+			cfsetospeed(&SerialPortSettings, B115200);
+			break;
+		case 1000000:
+			cfsetispeed(&SerialPortSettings, B1000000);
+			cfsetospeed(&SerialPortSettings, B1000000);
+			break;
+		case 2000000:
+			cfsetispeed(&SerialPortSettings, B2000000);
+			cfsetospeed(&SerialPortSettings, B2000000);
+			break;
+		default:;
+			cfsetispeed(&SerialPortSettings, B921600);
+			cfsetospeed(&SerialPortSettings, B921600);
+		}
+
 		SerialPortSettings.c_cflag &= ~PARENB;
 		SerialPortSettings.c_cflag &= ~CSTOPB;
-		SerialPortSettings.c_cflag &= ~CSIZE;
 		SerialPortSettings.c_cflag |= CS8;
 		SerialPortSettings.c_cflag &= ~CRTSCTS;
 		SerialPortSettings.c_cflag |= CREAD | CLOCAL;
+		SerialPortSettings.c_cflag &= ~HUPCL;
+		SerialPortSettings.c_lflag &= ~ICANON;
+		SerialPortSettings.c_lflag &= ~ECHO;
+		SerialPortSettings.c_lflag &= ~ECHOE;
+		SerialPortSettings.c_lflag &= ~ECHONL;
+		SerialPortSettings.c_lflag &= ~ISIG;
 		SerialPortSettings.c_iflag &= ~(IXON | IXOFF | IXANY);
-		SerialPortSettings.c_iflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+		SerialPortSettings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
 		SerialPortSettings.c_oflag &= ~OPOST;
+		SerialPortSettings.c_oflag &= ~ONLCR;
+		SerialPortSettings.c_cc[VTIME] = 1;
+		SerialPortSettings.c_cc[VMIN] = 0;
 		tcsetattr(serial, TCSANOW, &SerialPortSettings);
 
 		leds_count = led_manager_init(&led_config, &led_profiles[0]);
 
-		data_size = (leds_count * 3) + 6;
+		data_size = (leds_count * 3) + header_size;
 		if (external_led_enabled) {
 			data_size++;
 		}
 
 		data = malloc(data_size);
-		memset(data, 0, data_size);
-		strcat(data, "Ada");
+		memcpy(data, "Ada", 3);
 		data[3] = ((leds_count - 1) >> 8) & 0xff;
 		data[4] = (leds_count - 1) & 0xff;
 		data[5] = data[3] ^ data[4] ^ 0x55;
+		memset(data + header_size, 0, data_size - header_size);
+
+		if (external_led_enabled) {
+			data[data_size - 1] = external_led_state;
+		}
 
 		log("Grabbing started\n");
-		show_msg_box("Ambient Lighting On");
+		//if (tv_remote_enabled) {
+		//	show_msg_box("Ambient Lighting On");
+		//}
+		capture_frequency *= 1000;
 
-		buffer = malloc(4 * WIDTH * HEIGHT);
-		CDSize[0] = WIDTH;
-		CDSize[1] = HEIGHT;
+		cd_size[0] = led_config.image_width;
+		cd_size[1] = led_config.image_height;
+
+		if (hCTX.g_IPanel) {
+			rect[2] = ((func*)hCTX.g_IPanel[3])();
+			rect[3] = ((func*)hCTX.g_IPanel[4])();
+		}
+
+		gfx_lib = gfx_lib && hCTX.gfx_InitNonGAPlane && hCTX.MsOS_PA2KSEG0 && hCTX.MApi_MMAP_GetInfo && hCTX.gfx_CaptureFrame && hCTX.MApi_GOP_DWIN_CaptureOneFrame && hCTX.MApi_GOP_DWIN_GetWinProperty;
+
+		if (gfx_lib) {
+			panel_width = rect[2];
+			panel_heigth = rect[3];
+
+			width = panel_width / (panel_width / led_config.image_width);
+			heigth = panel_heigth / (panel_width / led_config.image_width);
+
+			frame_buffer_info = hCTX.MApi_MMAP_GetInfo(59, 0);
+			frame_buffer = hCTX.MsOS_PA2KSEG0(*frame_buffer_info);
+
+			out_buffer_info = hCTX.MApi_MMAP_GetInfo(60, 0);
+			out_buffer = hCTX.MsOS_PA2KSEG0(*out_buffer_info);
+			buffer = out_buffer;
+		}
+		else {
+			buffer = malloc(4 * led_config.image_width * led_config.image_height);
+		}
+
+		if (fps_test_frames > 0) {
+			char buff[4096] = "";
+			led_manager_print_area(buff);
+			log("%s", buff);
+
+			log("FPS Test Started for %ld frames @%ldx%ld\n", fps_test_frames, cd_size[0], cd_size[1]);
+			fps_test_remaining_frames = fps_test_frames;
+			fps_begin = clock();
+		}
+				
+		capture_begin = clock();
 
 		while (1) {
 			if (led_manager_get_state()) {
-				if (hCTX.SdDisplay_CaptureScreenF) {
-					hCTX.SdDisplay_CaptureScreenF(CDSize, buffer, CaptureInfo, 0);
+				if (gfx_lib) {
+					if (osd_enabled) {
+						hCTX.MApi_XC_W2BYTEMSK(4166, 0x8000, 0x8000);
+						hCTX.MApi_XC_W2BYTEMSK(4310, 0x2000, 0x2000);
+					}
+
+					hCTX.gfx_InitNonGAPlane(frame_buffer, panel_width, panel_heigth, 32, 0);
+					
+					hCTX.MApi_GOP_DWIN_GetWinProperty(win_property);
+					if (win_property[4] != panel_width / 2) {
+						hCTX.gfx_CaptureFrame(frame_buffer, 0, 2, 0, 0, panel_width, panel_heigth, 0, 1, 1, 0);
+						usleep(10000);
+						hCTX.gfx_ReleasePlane(frame_buffer, 0);
+						continue;
+					}
+
+					hCTX.MApi_GOP_DWIN_CaptureOneFrame();
+
+					hCTX.gfx_InitNonGAPlane(out_buffer, width, heigth, 32, 0);
+					hCTX.gfx_BitBltScale(frame_buffer, 0, 0, panel_width, panel_heigth, out_buffer, 0, 0, width, heigth);
+					hCTX.gfx_ReleasePlane(out_buffer, 0);
+					hCTX.gfx_ReleasePlane(frame_buffer, 0);
+
+					if (osd_enabled) {
+						hCTX.MApi_XC_W2BYTEMSK(4166, 0, 0x8000);
+						hCTX.MApi_XC_W2BYTEMSK(4310, 0, 0x2000);
+					}
+				}
+				else if (hCTX.SdDisplay_CaptureScreenF) {
+					hCTX.SdDisplay_CaptureScreenF(cd_size, buffer, capture_info, 0);
 				}
 				else if (hCTX.SdDisplay_CaptureScreenE) {
-					hCTX.SdDisplay_CaptureScreenE(CDSize, buffer, CaptureInfo);
+					hCTX.SdDisplay_CaptureScreenE(cd_size, buffer, capture_info);
 				}
 				else if (hCTX.SdDisplay_CaptureScreenH) {
-					f = (func*)hCTX.g_IPanel[3];
-					SdRect[2] = f();
-					f = (func*)hCTX.g_IPanel[4];
-					SdRect[3] = f();
-					hCTX.SdDisplay_CaptureScreenH(CDSize, buffer, CaptureInfo, SdRect, 0);
+					hCTX.SdDisplay_CaptureScreenH(cd_size, buffer, capture_info, rect, 0);
 				}
 
-				if (led_manager_argb8888_to_leds(buffer, &data[6]) == 1) {
-					bytesWritten = 0;
+				if (led_manager_argb8888_to_leds(buffer, &data[header_size])) {
 					if (external_led_enabled) {
 						data[data_size - 1] = external_led_state;
 					}
-					bytesRemaining = data_size;
-					while (bytesRemaining > 0) {
-						bytesWritten = write(serial, data + bytesWritten, bytesRemaining);
-						bytesRemaining -= bytesWritten;
+					bytesWritten = write(serial, data, data_size);
+					
+					fps_counter++;
+					if (black_border_enabled && fps_counter >= 30) {
+						fps_counter = 0;
+						if (black_border_state) {
+							if (led_manager_get_borders(buffer, &h_new_border, &v_new_border)) {
+								if (h_border != h_new_border || v_border != v_new_border) {
+									counter = 0;
+									h_border = h_new_border;
+									v_border = v_new_border;
+								}
+								else if (counter == 5) {
+									led_manager_profile_t profile;
+									profile.index = 1;
+									c = 0;
+									while (profile.index) {
+										profile = led_profiles[c];
+										if (abs(profile.h_padding_percent - h_border) <= 2 && abs(profile.v_padding_percent - v_border) <= 2) {
+											if (led_manager_get_profile_index() != profile.index) {
+												led_manager_set_profile(&profile);
+												log("Switched to %s Mode\n", profile.name);
+											}
+											break;
+										}
+										c++;
+									}
+								}
+								counter++;
+							}
+						}
+						else {
+							counter = 0;
+							h_border = 0;
+							v_border = 0;
+						}
 					}
+				}
 
-					if (led_test) {
-						break;
+				capture_end = clock();
+				elapsed = capture_end - capture_begin;
+				if (elapsed < capture_frequency) {
+					usleep(capture_frequency - elapsed);
+				}
+
+				if (fps_test_frames) {
+					fps_test_remaining_frames--;
+					if (fps_test_remaining_frames == 0) {
+						fps_end = clock();
+						log("FPS: %d\n", fps_test_frames * 1000 / ((fps_end - fps_begin) / 1000));
+						if (fps_test_frames == 1) {
+							break;
+						}
+						fps_test_remaining_frames = fps_test_frames;
+						fps_begin = clock();
 					}
 				}
-				else {
-					usleep(100000);
-				}
+
+				capture_begin = clock();
 			}
-
-			while (!led_manager_get_state()) {
+			else {
 				usleep(100000);
 			}
+		}
 
-			//usleep(100000);
-		} // while			   
-
-		free(buffer);
+		if (gfx_lib) {
+			hCTX.MsOS_Dcache_Flush(frame_buffer, frame_buffer_info[1]);
+			hCTX.MsOS_Dcache_Flush(out_buffer, out_buffer_info[1]);
+		}
+		else {
+			free(buffer);
+		}
+		;
 		free(data);
 
 		close(serial);
@@ -396,13 +485,326 @@ EXTERN_C void lib_init(void *_h, const char *libpath)
 		log("Could not open serial port!\n");
 	}
 
-
 	log("Sambilight ended\n");
-	dlclose(h);
+	//dlclose(h);
+	pthread_exit(NULL);
+	return NULL;
 }
 
-EXTERN_C void lib_deinit(
-	void *_h)
+static int jsoneq(const char* json, jsmntok_t* tok, const char* s) {
+	if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
+		strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
+		return 0;
+	}
+	return -1;
+}
+
+void load_profiles_config(const char* path) {
+	int length, index = 0, s;
+	char* ptr, * json_buffer, tmp[50];
+	jsmn_parser parser;
+	jsmntok_t tokens[128];
+	FILE* config_file;
+
+	config_file = fopen(path, "r");
+	if (config_file) {
+		fseek(config_file, 0, SEEK_END);
+		length = ftell(config_file);
+		fseek(config_file, 0, SEEK_SET);
+		json_buffer = malloc(length);
+		s = fread(json_buffer, 1, length, config_file);
+		fclose(config_file);
+
+		jsmn_init(&parser);
+		int r = jsmn_parse(&parser, json_buffer, length, tokens, sizeof(tokens) / sizeof(tokens[0]));
+		if (r >= 0 && tokens[0].type == JSMN_ARRAY) {
+			for (int i = 1; i < r; i++) {
+				if (tokens[i].type == JSMN_OBJECT) {
+					index++;
+					if (index == 1) {
+						memset(led_profiles, 0, sizeof(led_profiles));
+					}
+					led_profiles[index - 1].index = index;
+
+					log("-------------%d-------------\n", index);
+				}
+				else if (index) {
+					if (jsoneq(json_buffer, &tokens[i], "name") == 0) {
+						s = tokens[i + 1].end - tokens[i + 1].start;
+						if (s > sizeof(led_profiles[index - 1].name) - 1) {
+							s = sizeof(led_profiles[index - 1].name) - 1;
+						}
+						strncpy(led_profiles[index - 1].name, json_buffer + tokens[i + 1].start, s);
+
+						log("Name: %s\n", led_profiles[index - 1].name);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "saturation_gain_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 1) {
+							s = 1;
+						}
+						led_profiles[index - 1].saturation_gain_percent = s;
+
+						log("Saturation Gain: %d%%\n", led_profiles[index - 1].saturation_gain_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "value_gain_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 1) {
+							s = 1;
+						}
+						led_profiles[index - 1].value_gain_percent = s;
+
+						log("Value Gain: %d%%\n", led_profiles[index - 1].value_gain_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "brightness_correction") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < -255) {
+							s = -255;
+						}
+						else if (s > 255) {
+							s = 255;
+						}
+						led_profiles[index - 1].brightness_correction = s;
+
+						log("Brightness Correction: %d\n", led_profiles[index - 1].brightness_correction);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "horizontal_depth_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 0) {
+							s = 0;
+						}
+						else if (s > 100) {
+							s = 100;
+						}
+						led_profiles[index - 1].horizontal_depth_percent = s;
+
+						log("Horizontal Depth: %d%%\n", led_profiles[index - 1].horizontal_depth_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "vertical_depth_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 0) {
+							s = 0;
+						}
+						else if (s > 100) {
+							s = 100;
+						}
+						led_profiles[index - 1].vertical_depth_percent = s;
+
+						log("Vertical Depth: %d%%\n", led_profiles[index - 1].vertical_depth_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "overlap_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 0) {
+							s = 0;
+						}
+						else if (s > 100) {
+							s = 100;
+						}
+						led_profiles[index - 1].overlap_percent = s;
+
+						log("Overlap: %d%%\n", led_profiles[index - 1].overlap_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "h_padding_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 0) {
+							s = 0;
+						}
+						else if (s > 100) {
+							s = 100;
+						}
+						led_profiles[index - 1].h_padding_percent = strtol(tmp, &ptr, 10);
+
+						log("Horizontal Padding: %d%%\n", led_profiles[index - 1].h_padding_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "v_padding_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 0) {
+							s = 0;
+						}
+						else if (s > 100) {
+							s = 100;
+						}
+						led_profiles[index - 1].v_padding_percent = s;
+
+						log("Vertical Padding: %d%%\n", led_profiles[index - 1].v_padding_percent);
+						i++;
+					}
+				}
+			}
+			log("%d Profile(s) Loaded From Config\n", index);
+		}
+		else {
+			log("Failed To Parse Config!\n");
+		}
+
+		free(json_buffer);
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+STATIC int _hooked = 0;
+EXTERN_C void lib_init(void* _h, const char* libpath)
+{
+	if (_hooked) {
+		log("Injecting once is enough!\n");
+		return;
+	}
+
+	int argc;
+	char* argv[512], * optstr, path[PATH_MAX];
+	pthread_t thread;
+	size_t len;
+
+	unlink(LOG_FILE);
+	log("SamyGO "LIB_TV_MODELS" lib"LIB_NAME" "LIB_VERSION" - (c) tasshack 2019 - 2021\n");
+	void* h = dlopen(0, RTLD_LAZY);
+	if (!h) {
+		char* serr = dlerror();
+		log("%s", serr);
+		return;
+	}
+
+	patch_adbg_CheckSystem(h);
+
+	samyGO_whacky_t_init(h, &hCTX, ARRAYSIZE(hCTX.procs));
+
+	argc = getArgCArgV(libpath, argv);
+
+	optstr = getOptArg(argv, argc, "H_LEDS:");
+	if (optstr && strlen(optstr))
+		led_config.h_leds_count = atol(optstr);
+
+	optstr = getOptArg(argv, argc, "V_LEDS:");
+	if (optstr && strlen(optstr))
+		led_config.v_leds_count = atol(optstr);
+
+	optstr = getOptArg(argv, argc, "BOTTOM_GAP:");
+	if (optstr && strlen(optstr))
+		led_config.bottom_gap = atol(optstr);
+
+	optstr = getOptArg(argv, argc, "START_OFFSET:");
+	if (optstr && strlen(optstr))
+		led_config.start_offset = atol(optstr);
+
+	optstr = getOptArg(argv, argc, "CLOCKWISE:");
+	if (optstr)
+		led_config.led_order = atoi(optstr);
+
+	optstr = getOptArg(argv, argc, "COLOR_ORDER:");
+	if (optstr && strlen(optstr) == 3)
+		strncpy(led_config.color_order, optstr, 3);
+
+	optstr = getOptArg(argv, argc, "BLACK_BORDER:");
+	if (optstr && strlen(optstr))
+		black_border_enabled = atoi(optstr);
+
+	optstr = getOptArg(argv, argc, "CAPTURE_FREQ:");
+	if (optstr && strlen(optstr))
+		capture_frequency = atoi(optstr);
+
+	optstr = getOptArg(argv, argc, "TV_REMOTE:");
+	if (optstr)
+		tv_remote_enabled = atoi(optstr);
+
+	optstr = getOptArg(argv, argc, "EXTERNAL:");
+	if (optstr)
+		external_led_enabled = atoi(optstr);
+
+	optstr = getOptArg(argv, argc, "CAPTURE_SIZE:");
+	if (optstr) {
+		switch (atoi(optstr)) {
+		case 1:
+			led_config.image_width = 96;
+			led_config.image_height = 54;
+			break;
+		case 2:
+			led_config.image_width = 160;
+			led_config.image_height = 90;
+			break;
+		case 3:
+			led_config.image_width = 240;
+			led_config.image_height = 135;
+			break;
+		case 4:
+			led_config.image_width = 320;
+			led_config.image_height = 180;
+			break;
+		case 5:
+			led_config.image_width = 480;
+			led_config.image_height = 270;
+			break;
+		case 6:
+			led_config.image_width = 960;
+			led_config.image_height = 540;
+			break;
+		default:;
+		}
+	}
+
+	optstr = getOptArg(argv, argc, "OSD_CAPTURE:");
+	if (optstr)
+		osd_enabled = atol(optstr);
+
+	optstr = getOptArg(argv, argc, "GFX_LIB:");
+	if (optstr && strlen(optstr))
+		gfx_lib = atoi(optstr);
+
+	optstr = getOptArg(argv, argc, "DEVICE:");
+	if (optstr && strlen(optstr))
+		strncpy(device, optstr, strlen(device));
+
+	optstr = getOptArg(argv, argc, "BAUDRATE:");
+	if (optstr && strlen(optstr))
+		baudrate = atol(optstr);
+
+	optstr = getOptArg(argv, argc, "TEST_FRAMES:");
+	if (optstr)
+		fps_test_frames = atol(optstr);
+
+	if (tv_remote_enabled) {
+		if (dyn_sym_tab_init(h, dyn_hook_fn_tab, ARRAYSIZE(dyn_hook_fn_tab)) >= 0) {
+			set_hooks(LIB_HOOKS, ARRAYSIZE(LIB_HOOKS));
+			_hooked = 1;
+		}
+	}
+
+	strncpy(path, libpath, PATH_MAX);
+	len = strlen(libpath) - 1;
+	while (path[len] && path[len] != '.')
+	{
+		path[len] = 0;
+		len--;
+	}
+	strncat(path, "config", PATH_MAX);
+	load_profiles_config(path);
+	pthread_create(&thread, NULL, &sambiligth_thread, NULL);
+}
+
+EXTERN_C void lib_deinit(void* _h)
 {
 	log(">>> %s\n", __func__);
 
@@ -411,19 +813,18 @@ EXTERN_C void lib_deinit(
 	if (_hooked)
 		remove_hooks(LIB_HOOKS, ARRAYSIZE(LIB_HOOKS));
 
+	_hooked = 0;
 	log("<<< %s\n", __func__);
 }
 
 
-
 //////////////////////////////////////////////////////////////////////////////
-
-STATIC int show_msg_box(const char * text)
+STATIC int show_msg_box(const char* text)
 {
-	void *CViewerManager, *CViewerInstance, *CViewerApp, *CCustomTextApp;
+	void* CViewerManager, * CViewerInstance, * CViewerApp, * CCustomTextApp;
 
 	int newLength, strPos, i, seekLen = 13, strLen = 0;
-	unsigned short *tvString = NULL;
+	unsigned short* tvString = NULL;
 
 	unsigned char stringUtf[512];
 	memset(stringUtf, 0, 512 * sizeof(char));
@@ -439,7 +840,7 @@ STATIC int show_msg_box(const char * text)
 	if (hCTX.ALMOND0300_CDesktopManager_GetInstance) {
 		CViewerInstance = hCTX.ALMOND0300_CDesktopManager_GetInstance(1);
 		CViewerApp = hCTX.ALMOND0300_CDesktopManager_GetApplication(CViewerInstance, "samsung.native.tvviewer", 0);
-		int *CSystemAlertApp = hCTX.ALMOND0300_CDesktopManager_GetApplication(CViewerInstance, "samsung.native.systemalert", 0);
+		int* CSystemAlertApp = hCTX.ALMOND0300_CDesktopManager_GetApplication(CViewerInstance, "samsung.native.systemalert", 0);
 		CSystemAlertApp[0x4b14 / 4] = 1;
 		CCustomTextApp = hCTX.ALMOND0300_CDesktopManager_GetApplication(CViewerInstance, "samsung.native.rcmode", 0);
 	}
@@ -480,7 +881,7 @@ STATIC int show_msg_box(const char * text)
 	}
 
 	uint32_t paligned = (uint32_t)tvString & ~0x0FFF;
-	mprotect((uint32_t *)paligned, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC);
+	mprotect((uint32_t*)paligned, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC);
 
 	for (i = 0; i <= 255; i++)
 		oldString[i] = tvString[i];
