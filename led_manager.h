@@ -19,6 +19,7 @@ typedef struct {
 	unsigned short image_width;
 	unsigned short image_height;
 	char color_order[3];
+	unsigned short capture_pos;
 	unsigned char led_order;
 } led_manager_config_t;
 

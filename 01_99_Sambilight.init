@@ -15,6 +15,7 @@ START_OFFSET=68;		# Index of first led (Top Left is zero) (H_LEDS + V_LEDS + (H_
 
 # Optional Parameters
 COLOR_ORDER=RGB;		# Capture color order
+CAPTURE_POS=0;			# Capture starts from bottom (Set to 1 for upside down and dont forget to change color order too)
 CLOCKWISE=1;			# Led order (Set to 0 for anti-clockwise)
 BLACK_BORDER=1;			# Black border detection for automatic profile switching (16:9, 21:9, 4:3, 3:2)
 TV_REMOTE=1;			# Enable control with TV remote buttons (Red, Green, Yellow, Blue)
@@ -39,7 +40,7 @@ then
 	PID=T
 fi
 
-START_SAMBILIGHT="samyGOso -$PID -B -r -l /mnt/opt/privateer/usr/libso/libSambilight.so H_LEDS:$H_LEDS V_LEDS:$V_LEDS BOTTOM_GAP:$BOTTOM_GAP START_OFFSET:$START_OFFSET CLOCKWISE:$CLOCKWISE COLOR_ORDER:$COLOR_ORDER BLACK_BORDER:$BLACK_BORDER CAPTURE_FREQ:$CAPTURE_FREQ TV_REMOTE:$TV_REMOTE EXTERNAL:$EXTERNAL CAPTURE_SIZE:$CAPTURE_SIZE DEVICE:$DEVICE OSD_CAPTURE:$OSD_CAPTURE GFX_LIB:$GFX_LIB TEST_FRAMES:$TEST_FRAMES";
+START_SAMBILIGHT="samyGOso -$PID -B -r -l /mnt/opt/privateer/usr/libso/libSambilight.so H_LEDS:$H_LEDS V_LEDS:$V_LEDS BOTTOM_GAP:$BOTTOM_GAP START_OFFSET:$START_OFFSET CLOCKWISE:$CLOCKWISE COLOR_ORDER:$COLOR_ORDER CAPTURE_POS:$CAPTURE_POS BLACK_BORDER:$BLACK_BORDER CAPTURE_FREQ:$CAPTURE_FREQ TV_REMOTE:$TV_REMOTE EXTERNAL:$EXTERNAL CAPTURE_SIZE:$CAPTURE_SIZE DEVICE:$DEVICE OSD_CAPTURE:$OSD_CAPTURE GFX_LIB:$GFX_LIB TEST_FRAMES:$TEST_FRAMES";
 
 
 case $1 in 

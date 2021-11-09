@@ -92,7 +92,13 @@ unsigned char led_manager_correction(unsigned char color, short brightness_corre
 
 void led_manager_get_pixel(const unsigned char* buffer, unsigned char* red, unsigned char* green, unsigned char* blue, long x, long y)
 {
-	unsigned long address = ((led_manager.config.image_height - 1 - y) * (led_manager.config.image_width * 4)) + ((led_manager.config.image_width - 1 - x) * 4);
+	unsigned long address;
+	if (led_manager.config.capture_pos) {
+		address = (y * (led_manager.config.image_width * 4)) + ((led_manager.config.image_width - 1 - x) * 4);
+	}
+	else {
+		address = ((led_manager.config.image_height - 1 - y) * (led_manager.config.image_width * 4)) + ((led_manager.config.image_width - 1 - x) * 4);
+	}
 
 	*red = led_manager_correction(buffer[address + led_manager._rPos], led_manager.brightness_correction);
 	*green = led_manager_correction(buffer[address + led_manager._gPos], led_manager.brightness_correction);

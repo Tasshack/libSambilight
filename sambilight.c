@@ -37,7 +37,7 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.0.4"
+#define LIB_VERSION "v1.0.5"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
@@ -717,6 +717,10 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	optstr = getOptArg(argv, argc, "COLOR_ORDER:");
 	if (optstr && strlen(optstr) == 3)
 		strncpy(led_config.color_order, optstr, 3);
+
+	optstr = getOptArg(argv, argc, "CAPTURE_POS:");
+	if (optstr && strlen(optstr) == 3)
+		led_config.capture_pos = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "BLACK_BORDER:");
 	if (optstr && strlen(optstr))
