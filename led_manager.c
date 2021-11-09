@@ -92,17 +92,24 @@ unsigned char led_manager_correction(unsigned char color, short brightness_corre
 
 void led_manager_get_pixel(const unsigned char* buffer, unsigned char* red, unsigned char* green, unsigned char* blue, long x, long y)
 {
-	unsigned long address;
-	if (led_manager.config.capture_pos) {
-		address = (y * (led_manager.config.image_width * 4)) + ((led_manager.config.image_width - 1 - x) * 4);
+	if (x >= 0 && x < led_manager.config.image_width && y >= 0 && y < led_manager.config.image_height) {
+		unsigned long address;
+		if (led_manager.config.capture_pos) {
+			address = (y * (led_manager.config.image_width * 4)) + ((led_manager.config.image_width - 1 - x) * 4);
+		}
+		else {
+			address = ((led_manager.config.image_height - 1 - y) * (led_manager.config.image_width * 4)) + ((led_manager.config.image_width - 1 - x) * 4);
+		}
+
+		*red = led_manager_correction(buffer[address + led_manager._rPos], led_manager.brightness_correction);
+		*green = led_manager_correction(buffer[address + led_manager._gPos], led_manager.brightness_correction);
+		*blue = led_manager_correction(buffer[address + led_manager._bPos], led_manager.brightness_correction);
 	}
 	else {
-		address = ((led_manager.config.image_height - 1 - y) * (led_manager.config.image_width * 4)) + ((led_manager.config.image_width - 1 - x) * 4);
+		*red = 0;
+		*green = 0;
+		*blue = 0;
 	}
-
-	*red = led_manager_correction(buffer[address + led_manager._rPos], led_manager.brightness_correction);
-	*green = led_manager_correction(buffer[address + led_manager._gPos], led_manager.brightness_correction);
-	*blue = led_manager_correction(buffer[address + led_manager._bPos], led_manager.brightness_correction);
 }
 
 unsigned char led_manager_check_black(const unsigned char* buffer, long x, long y, unsigned char threshold)

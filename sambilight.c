@@ -51,7 +51,7 @@
 
 unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 1, tv_remote_enabled = 1, gfx_lib = 1;
 unsigned long baudrate = 921600, fps_test_frames = 0, capture_frequency = 20;
-led_manager_config_t led_config = { 35, 19, 7, 68, 960, 540, "RGB", 1 };
+led_manager_config_t led_config = { 35, 19, 7, 68, 960, 540, "RGB", 0, 1 };
 char device[100] = "/dev/ttyUSB0";
 
 STATIC int show_msg_box(const char* text);
@@ -719,7 +719,7 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		strncpy(led_config.color_order, optstr, 3);
 
 	optstr = getOptArg(argv, argc, "CAPTURE_POS:");
-	if (optstr && strlen(optstr) == 3)
+	if (optstr && strlen(optstr))
 		led_config.capture_pos = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "BLACK_BORDER:");
