@@ -37,7 +37,7 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.0.5"
+#define LIB_VERSION "v1.0.6"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
@@ -51,7 +51,7 @@
 
 unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 1, tv_remote_enabled = 1, gfx_lib = 1;
 unsigned long baudrate = 921600, fps_test_frames = 0, capture_frequency = 20;
-led_manager_config_t led_config = { 35, 19, 7, 68, 960, 540, "RGB", 0, 1 };
+led_manager_config_t led_config = { 35, 19, 7, 68, 480, 270, "RGB", 0, 1 };
 char device[100] = "/dev/ttyUSB0";
 
 STATIC int show_msg_box(const char* text);
@@ -192,16 +192,16 @@ _HOOK_IMPL(int, CViewerApp_t_OnInputOccur, void* this, int* a2)
 	case 21: // KEY_YELLOW
 		switch (led_manager_get_intensity()) {
 		case 100:
-			led_manager_set_intensity(75);
+			led_manager_set_intensity(75, 0);
 			break;
 		case 75:
-			led_manager_set_intensity(50);
+			led_manager_set_intensity(50, 0);
 			break;
 		case 50:
-			led_manager_set_intensity(25);
+			led_manager_set_intensity(25, 0);
 			break;
 		default:;
-			led_manager_set_intensity(100);
+			led_manager_set_intensity(100, 0);
 			break;
 		}
 		sprintf(msg, "%s %%%d", msgHeader, led_manager_get_intensity());
@@ -241,18 +241,18 @@ STATIC hook_entry_t LIB_HOOKS[] =
 
 void* sambiligth_thread(void* params) {
 
-	int capture_info[20] = { 0 }, rect[4] = { 0 }, cd_size[2] = { 0, 0 }, win_property[20], serial;
+	int capture_info[20] = { 0 }, panel_size[4] = { 0, 0, 0, 0 }, cd_size[2] = { 0, 0 }, win_property[20], serial;
 	unsigned char* buffer, * data;
-	unsigned long fps_counter = 0, counter = 0, c;
-	unsigned short leds_count, data_size, header_size = 6, h_border = 0, v_border = 0, h_new_border = 0, v_new_border = 0;
-	unsigned long fps_test_remaining_frames = 0, bytesWritten;
+	unsigned long fps_counter = 0, counter = 0, c, data_size, leds_count, fps_test_remaining_frames = 0, bytesWritten;
+	unsigned short header_size = 6, h_border = 0, v_border = 0, h_new_border = 0, v_new_border = 0;
 	clock_t capture_begin, capture_end, fps_begin, fps_end, elapsed;
-	unsigned int panel_width, panel_heigth, width, heigth;
 	void* frame_buffer, * out_buffer;
 	int* out_buffer_info, * frame_buffer_info;
 	typedef int func(void);
 
-	pthread_detach(pthread_self());
+	if (fps_test_frames != 1) {
+		pthread_detach(pthread_self());
+	}
 
 	log("Sambilight started\n");
 	serial = open(device, O_WRONLY | O_NOCTTY);
@@ -324,19 +324,17 @@ void* sambiligth_thread(void* params) {
 		cd_size[1] = led_config.image_height;
 
 		if (hCTX.g_IPanel) {
-			rect[2] = ((func*)hCTX.g_IPanel[3])();
-			rect[3] = ((func*)hCTX.g_IPanel[4])();
+			panel_size[2] = ((func*)hCTX.g_IPanel[3])();
+			panel_size[3] = ((func*)hCTX.g_IPanel[4])();
+		}
+		else {
+			panel_size[2] = 1920;
+			panel_size[3] = 1080;
 		}
 
-		gfx_lib = gfx_lib && hCTX.gfx_InitNonGAPlane && hCTX.MsOS_PA2KSEG0 && hCTX.MApi_MMAP_GetInfo && hCTX.gfx_CaptureFrame && hCTX.MApi_GOP_DWIN_CaptureOneFrame && hCTX.MApi_GOP_DWIN_GetWinProperty;
+		gfx_lib = gfx_lib && fps_test_frames != 1 && hCTX.gfx_InitNonGAPlane && hCTX.MsOS_PA2KSEG0 && hCTX.MApi_MMAP_GetInfo && hCTX.gfx_CaptureFrame && hCTX.MApi_GOP_DWIN_CaptureOneFrame && hCTX.MApi_GOP_DWIN_GetWinProperty;
 
 		if (gfx_lib) {
-			panel_width = rect[2];
-			panel_heigth = rect[3];
-
-			width = panel_width / (panel_width / led_config.image_width);
-			heigth = panel_heigth / (panel_width / led_config.image_width);
-
 			frame_buffer_info = hCTX.MApi_MMAP_GetInfo(59, 0);
 			frame_buffer = hCTX.MsOS_PA2KSEG0(*frame_buffer_info);
 
@@ -349,15 +347,16 @@ void* sambiligth_thread(void* params) {
 		}
 
 		if (fps_test_frames > 0) {
-			char buff[4096] = "";
-			led_manager_print_area(buff);
-			log("%s", buff);
+			led_manager_set_intensity(100, 1);
+			//char buff[4096] = "";
+			//led_manager_print_area(buff);
+			//log("%s", buff);
 
 			log("FPS Test Started for %ld frames @%ldx%ld\n", fps_test_frames, cd_size[0], cd_size[1]);
 			fps_test_remaining_frames = fps_test_frames;
 			fps_begin = clock();
 		}
-				
+
 		capture_begin = clock();
 
 		while (1) {
@@ -368,11 +367,11 @@ void* sambiligth_thread(void* params) {
 						hCTX.MApi_XC_W2BYTEMSK(4310, 0x2000, 0x2000);
 					}
 
-					hCTX.gfx_InitNonGAPlane(frame_buffer, panel_width, panel_heigth, 32, 0);
-					
+					hCTX.gfx_InitNonGAPlane(frame_buffer, panel_size[2], panel_size[3], 32, 0);
+
 					hCTX.MApi_GOP_DWIN_GetWinProperty(win_property);
-					if (win_property[4] != panel_width / 2) {
-						hCTX.gfx_CaptureFrame(frame_buffer, 0, 2, 0, 0, panel_width, panel_heigth, 0, 1, 1, 0);
+					if (win_property[4] != panel_size[2] / 2) {
+						hCTX.gfx_CaptureFrame(frame_buffer, 0, 2, 0, 0, panel_size[2], panel_size[3], 0, 1, 1, 0);
 						usleep(10000);
 						hCTX.gfx_ReleasePlane(frame_buffer, 0);
 						continue;
@@ -380,8 +379,8 @@ void* sambiligth_thread(void* params) {
 
 					hCTX.MApi_GOP_DWIN_CaptureOneFrame();
 
-					hCTX.gfx_InitNonGAPlane(out_buffer, width, heigth, 32, 0);
-					hCTX.gfx_BitBltScale(frame_buffer, 0, 0, panel_width, panel_heigth, out_buffer, 0, 0, width, heigth);
+					hCTX.gfx_InitNonGAPlane(out_buffer, led_config.image_width, led_config.image_height, 32, 0);
+					hCTX.gfx_BitBltScale(frame_buffer, 0, 0, panel_size[2], panel_size[3], out_buffer, 0, 0, led_config.image_width, led_config.image_height);
 					hCTX.gfx_ReleasePlane(out_buffer, 0);
 					hCTX.gfx_ReleasePlane(frame_buffer, 0);
 
@@ -397,7 +396,7 @@ void* sambiligth_thread(void* params) {
 					hCTX.SdDisplay_CaptureScreenE(cd_size, buffer, capture_info);
 				}
 				else if (hCTX.SdDisplay_CaptureScreenH) {
-					hCTX.SdDisplay_CaptureScreenH(cd_size, buffer, capture_info, rect, 0);
+					hCTX.SdDisplay_CaptureScreenH(cd_size, buffer, capture_info, panel_size, 0);
 				}
 
 				if (led_manager_argb8888_to_leds(buffer, &data[header_size])) {
@@ -405,7 +404,7 @@ void* sambiligth_thread(void* params) {
 						data[data_size - 1] = external_led_state;
 					}
 					bytesWritten = write(serial, data, data_size);
-					
+
 					fps_counter++;
 					if (black_border_enabled && fps_counter >= 30) {
 						fps_counter = 0;
@@ -445,18 +444,18 @@ void* sambiligth_thread(void* params) {
 
 				capture_end = clock();
 				elapsed = capture_end - capture_begin;
-				if (elapsed < capture_frequency) {
+				if (elapsed < capture_frequency && fps_test_frames != 1) {
 					usleep(capture_frequency - elapsed);
 				}
 
-				if (fps_test_frames) {
+				if (fps_test_frames > 0) {
 					fps_test_remaining_frames--;
 					if (fps_test_remaining_frames == 0) {
-						fps_end = clock();
-						log("FPS: %d\n", fps_test_frames * 1000 / ((fps_end - fps_begin) / 1000));
 						if (fps_test_frames == 1) {
 							break;
 						}
+						fps_end = clock();
+						log("FPS: %d\n", fps_test_frames * 1000 / ((fps_end - fps_begin) / 1000));
 						fps_test_remaining_frames = fps_test_frames;
 						fps_begin = clock();
 					}
@@ -477,17 +476,20 @@ void* sambiligth_thread(void* params) {
 			free(buffer);
 		}
 		;
-		free(data);
 
+		free(data);
 		close(serial);
 	}
 	else {
 		log("Could not open serial port!\n");
 	}
+	
+	led_manager_deinit();
 
 	log("Sambilight ended\n");
-	//dlclose(h);
-	pthread_exit(NULL);
+	if (fps_test_frames != 1) {
+		pthread_exit(NULL);
+	}
 	return NULL;
 }
 
@@ -757,15 +759,14 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 			led_config.image_width = 320;
 			led_config.image_height = 180;
 			break;
-		case 5:
-			led_config.image_width = 480;
-			led_config.image_height = 270;
-			break;
 		case 6:
 			led_config.image_width = 960;
 			led_config.image_height = 540;
 			break;
-		default:;
+		default:
+			led_config.image_width = 480;
+			led_config.image_height = 270;
+			break;
 		}
 	}
 
@@ -789,7 +790,7 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	if (optstr)
 		fps_test_frames = atol(optstr);
 
-	if (tv_remote_enabled) {
+	if (tv_remote_enabled && fps_test_frames > 1) {
 		if (dyn_sym_tab_init(h, dyn_hook_fn_tab, ARRAYSIZE(dyn_hook_fn_tab)) >= 0) {
 			set_hooks(LIB_HOOKS, ARRAYSIZE(LIB_HOOKS));
 			_hooked = 1;
@@ -805,14 +806,18 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	}
 	strncat(path, "config", PATH_MAX);
 	load_profiles_config(path);
-	pthread_create(&thread, NULL, &sambiligth_thread, NULL);
+	if (fps_test_frames == 1) {
+		sambiligth_thread(NULL);
+		dlclose(h);
+	}
+	else {
+		pthread_create(&thread, NULL, &sambiligth_thread, NULL);
+	}
 }
 
 EXTERN_C void lib_deinit(void* _h)
 {
 	log(">>> %s\n", __func__);
-
-	log("If you see this message you forget to specify -r when invoking samyGOso :)\n");
 
 	if (_hooked)
 		remove_hooks(LIB_HOOKS, ARRAYSIZE(LIB_HOOKS));
@@ -820,7 +825,6 @@ EXTERN_C void lib_deinit(void* _h)
 	_hooked = 0;
 	log("<<< %s\n", __func__);
 }
-
 
 //////////////////////////////////////////////////////////////////////////////
 STATIC int show_msg_box(const char* text)

@@ -31,7 +31,7 @@ typedef struct {
 	led_manager_profile_t current_profile;
 	led_manager_profile_t new_profile;
 
-	unsigned short leds_count;
+	unsigned long leds_count;
 
 	unsigned short new_intensity;
 	unsigned short current_intensity;
@@ -49,13 +49,13 @@ typedef struct {
 	unsigned char _px_r;
 	unsigned char _px_g;
 	unsigned char _px_b;
-	unsigned long _address;
+	unsigned long long _address;
 	unsigned char _changed;
 	unsigned char _profile_changed;
 	unsigned long long _total_r;
 	unsigned long long _total_g;
 	unsigned long long _total_b;
-	unsigned short _i;
+	unsigned long _i;
 	unsigned char _rPos;
 	unsigned char _gPos;
 	unsigned char _bPos;
@@ -152,6 +152,10 @@ unsigned char led_manager_get_borders(const unsigned char* buffer, unsigned shor
 		return 0;
 	}
 	return 1;
+}
+
+void led_manager_deinit() {
+	free(led_manager.leds);
 }
 
 static void led_manager_rgb2hsv(unsigned char red, unsigned char green, unsigned char blue, unsigned short* hue, unsigned short* saturation, unsigned short* value)
@@ -296,7 +300,7 @@ static unsigned char led_manager_get_channel(char type)
 
 int led_manager_calculate_area()
 {
-	int padded_width, padded_height, vertical_depth, horizontal_depth, index, i, j, overlap_px_x, overlap_px_y, v_padding_px, h_padding_px;
+	unsigned long padded_width, padded_height, vertical_depth, horizontal_depth, index, i, j, overlap_px_x, overlap_px_y, v_padding_px, h_padding_px;
 	float x_area, y_area;
 	v_padding_px = ((led_manager.current_profile.v_padding_percent / 100.0) * led_manager.config.image_width);
 	h_padding_px = ((led_manager.current_profile.h_padding_percent / 100.0) * led_manager.config.image_height);
@@ -339,6 +343,13 @@ int led_manager_calculate_area()
 
 			led_manager.leds[index].x1 = (short)ceilf(x_area * i) + v_padding_px - overlap_px_x;
 			led_manager.leds[index].x2 = led_manager.leds[index].x1 + x_area + overlap_px_x + 1;
+
+			if (led_manager.leds[index].x1 < 0) {
+				led_manager.leds[index].x1 = 0;
+			}
+			if (led_manager.leds[index].x2 >= padded_width) {
+				led_manager.leds[index].x2 = padded_width - 1;
+			}
 		}
 	}
 
@@ -359,6 +370,13 @@ int led_manager_calculate_area()
 
 			led_manager.leds[index].y1 = (short)ceilf(y_area * i) + h_padding_px - overlap_px_y;
 			led_manager.leds[index].y2 = led_manager.leds[index].y1 + y_area + overlap_px_y;
+
+			if (led_manager.leds[index].y1 < 0) {
+				led_manager.leds[index].y1 = 0;
+			}
+			if (led_manager.leds[index].y2 >= padded_height) {
+				led_manager.leds[index].y2 = padded_height - 1;
+			}
 		}
 	}
 
@@ -545,12 +563,20 @@ int led_manager_get_state()
 	return led_manager.state || led_manager.current_intensity;
 }
 
-int led_manager_set_intensity(unsigned int intensity)
+int led_manager_set_intensity(unsigned int intensity, unsigned int current)
 {
 	if (intensity <= 100) {
-		if (intensity != led_manager.new_intensity) {
+		if (current) {
+			led_manager.current_intensity = intensity;
 			led_manager.new_intensity = intensity;
+			led_manager.fintensity = led_manager.current_intensity / 100.0;
 			return 1;
+		}
+		else {
+			if (intensity != led_manager.new_intensity) {
+				led_manager.new_intensity = intensity;
+				return 1;
+			}
 		}
 		return 0;
 	}
@@ -564,7 +590,7 @@ int led_manager_get_intensity()
 
 int led_manager_print_area(char* buffer)
 {
-	char buff[300] = {};
+	char buff[500] = {};
 	sprintf(buffer, "%d x %d \n", led_manager.config.image_width, led_manager.config.image_height);
 	for (int i = 0; i < led_manager.leds_count; i++) {
 		memset(buff, 0, sizeof(buff));
