@@ -37,7 +37,7 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.0.6"
+#define LIB_VERSION "v1.0.7"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
@@ -49,8 +49,10 @@
 #include "jsmn.h"
 
 
-unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 1, tv_remote_enabled = 1, gfx_lib = 1;
-unsigned long baudrate = 921600, fps_test_frames = 0, capture_frequency = 20;
+unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 0, tv_remote_enabled = 1, gfx_lib = 1;
+unsigned long baudrate = 115200, fps_test_frames = 0, capture_frequency = 20;
+int serial;
+void* h;
 led_manager_config_t led_config = { 35, 19, 7, 68, 480, 270, "RGB", 0, 1 };
 char device[100] = "/dev/ttyUSB0";
 
@@ -241,10 +243,10 @@ STATIC hook_entry_t LIB_HOOKS[] =
 
 void* sambiligth_thread(void* params) {
 
-	int capture_info[20] = { 0 }, panel_size[4] = { 0, 0, 0, 0 }, cd_size[2] = { 0, 0 }, win_property[20], serial;
+	int capture_info[20] = { 0 }, panel_size[4] = { 0, 0, 1920, 1080 }, cd_size[2] = { 0, 0 }, win_property[20];
 	unsigned char* buffer, * data;
-	unsigned long fps_counter = 0, counter = 0, c, data_size, leds_count, fps_test_remaining_frames = 0, bytesWritten;
-	unsigned short header_size = 6, h_border = 0, v_border = 0, h_new_border = 0, v_new_border = 0;
+	unsigned long fps_counter = 0, counter = 0, c, data_size, leds_count, fps_test_remaining_frames = 0, bytesWritten, bytesRemaining;
+	unsigned short header_size = 6, h_border = 0, v_border = 0, h_new_border = 0, v_new_border = 0, scale = 2;
 	clock_t capture_begin, capture_end, fps_begin, fps_end, elapsed;
 	void* frame_buffer, * out_buffer;
 	int* out_buffer_info, * frame_buffer_info;
@@ -254,237 +256,209 @@ void* sambiligth_thread(void* params) {
 		pthread_detach(pthread_self());
 	}
 
-	log("Sambilight started\n");
-	serial = open(device, O_WRONLY | O_NOCTTY);
-	if (serial >= 0) {
-		struct termios SerialPortSettings;
-		tcgetattr(serial, &SerialPortSettings);
-		switch (baudrate) {
-		case 115200:
-			cfsetispeed(&SerialPortSettings, B115200);
-			cfsetospeed(&SerialPortSettings, B115200);
-			break;
-		case 1000000:
-			cfsetispeed(&SerialPortSettings, B1000000);
-			cfsetospeed(&SerialPortSettings, B1000000);
-			break;
-		case 2000000:
-			cfsetispeed(&SerialPortSettings, B2000000);
-			cfsetospeed(&SerialPortSettings, B2000000);
-			break;
-		default:;
-			cfsetispeed(&SerialPortSettings, B921600);
-			cfsetospeed(&SerialPortSettings, B921600);
-		}
+	leds_count = led_manager_init(&led_config, &led_profiles[0]);
 
-		SerialPortSettings.c_cflag &= ~PARENB;
-		SerialPortSettings.c_cflag &= ~CSTOPB;
-		SerialPortSettings.c_cflag |= CS8;
-		SerialPortSettings.c_cflag &= ~CRTSCTS;
-		SerialPortSettings.c_cflag |= CREAD | CLOCAL;
-		SerialPortSettings.c_cflag &= ~HUPCL;
-		SerialPortSettings.c_lflag &= ~ICANON;
-		SerialPortSettings.c_lflag &= ~ECHO;
-		SerialPortSettings.c_lflag &= ~ECHOE;
-		SerialPortSettings.c_lflag &= ~ECHONL;
-		SerialPortSettings.c_lflag &= ~ISIG;
-		SerialPortSettings.c_iflag &= ~(IXON | IXOFF | IXANY);
-		SerialPortSettings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
-		SerialPortSettings.c_oflag &= ~OPOST;
-		SerialPortSettings.c_oflag &= ~ONLCR;
-		SerialPortSettings.c_cc[VTIME] = 1;
-		SerialPortSettings.c_cc[VMIN] = 0;
-		tcsetattr(serial, TCSANOW, &SerialPortSettings);
+	data_size = (leds_count * 3) + header_size;
+	if (external_led_enabled) {
+		data_size++;
+	}
 
-		leds_count = led_manager_init(&led_config, &led_profiles[0]);
+	data = malloc(data_size);
+	memcpy(data, "Ada", 3);
+	data[3] = ((leds_count - 1) >> 8) & 0xff;
+	data[4] = (leds_count - 1) & 0xff;
+	data[5] = data[3] ^ data[4] ^ 0x55;
+	memset(data + header_size, 0, data_size - header_size);
 
-		data_size = (leds_count * 3) + header_size;
-		if (external_led_enabled) {
-			data_size++;
-		}
+	if (external_led_enabled) {
+		data[data_size - 1] = external_led_state;
+	}
+	//if (tv_remote_enabled) {
+	//	show_msg_box("Ambient Lighting On");
+	//}
+	capture_frequency *= 1000;
 
-		data = malloc(data_size);
-		memcpy(data, "Ada", 3);
-		data[3] = ((leds_count - 1) >> 8) & 0xff;
-		data[4] = (leds_count - 1) & 0xff;
-		data[5] = data[3] ^ data[4] ^ 0x55;
-		memset(data + header_size, 0, data_size - header_size);
+	cd_size[0] = led_config.image_width;
+	cd_size[1] = led_config.image_height;
 
-		if (external_led_enabled) {
-			data[data_size - 1] = external_led_state;
-		}
+	if (hCTX.g_IPanel) {
+		panel_size[2] = ((func*)hCTX.g_IPanel[3])();
+		panel_size[3] = ((func*)hCTX.g_IPanel[4])();
+	}
 
-		log("Grabbing started\n");
-		//if (tv_remote_enabled) {
-		//	show_msg_box("Ambient Lighting On");
-		//}
-		capture_frequency *= 1000;
+	gfx_lib = gfx_lib && fps_test_frames != 1 && hCTX.gfx_InitNonGAPlane && hCTX.MsOS_PA2KSEG0 && hCTX.MApi_MMAP_GetInfo && hCTX.gfx_CaptureFrame && hCTX.MApi_GOP_DWIN_CaptureOneFrame && hCTX.MApi_GOP_DWIN_GetWinProperty;
 
-		cd_size[0] = led_config.image_width;
-		cd_size[1] = led_config.image_height;
+	if (gfx_lib) {
+		log("gfx_lib enabled\n");
+	}
 
-		if (hCTX.g_IPanel) {
-			panel_size[2] = ((func*)hCTX.g_IPanel[3])();
-			panel_size[3] = ((func*)hCTX.g_IPanel[4])();
-		}
-		else {
-			panel_size[2] = 1920;
-			panel_size[3] = 1080;
-		}
+	scale = panel_size[2] / led_config.image_width;
 
-		gfx_lib = gfx_lib && fps_test_frames != 1 && hCTX.gfx_InitNonGAPlane && hCTX.MsOS_PA2KSEG0 && hCTX.MApi_MMAP_GetInfo && hCTX.gfx_CaptureFrame && hCTX.MApi_GOP_DWIN_CaptureOneFrame && hCTX.MApi_GOP_DWIN_GetWinProperty;
+	if (gfx_lib) {
+		frame_buffer_info = hCTX.MApi_MMAP_GetInfo(59, 0);
+		frame_buffer = hCTX.MsOS_PA2KSEG0(*frame_buffer_info);
+	}
 
-		if (gfx_lib) {
-			frame_buffer_info = hCTX.MApi_MMAP_GetInfo(59, 0);
-			frame_buffer = hCTX.MsOS_PA2KSEG0(*frame_buffer_info);
+	if (gfx_lib && scale > 1) {
+		out_buffer_info = hCTX.MApi_MMAP_GetInfo(60, 0);
+		out_buffer = hCTX.MsOS_PA2KSEG0(*out_buffer_info);
+		buffer = out_buffer;
+	}
+	else {
+		buffer = malloc(4 * led_config.image_width * led_config.image_height);
+	}
 
-			out_buffer_info = hCTX.MApi_MMAP_GetInfo(60, 0);
-			out_buffer = hCTX.MsOS_PA2KSEG0(*out_buffer_info);
-			buffer = out_buffer;
-		}
-		else {
-			buffer = malloc(4 * led_config.image_width * led_config.image_height);
-		}
+	if (fps_test_frames > 0) {
+		led_manager_set_intensity(100, 1);
+		//char buff[4096] = "";
+		//led_manager_print_area(buff);
+		//LOG(buff);
 
-		if (fps_test_frames > 0) {
-			led_manager_set_intensity(100, 1);
-			//char buff[4096] = "";
-			//led_manager_print_area(buff);
-			//log("%s", buff);
+		log("Test Started for %ld frames\n", fps_test_frames);
+		fps_test_remaining_frames = fps_test_frames;
+		fps_begin = clock();
+	}
 
-			log("FPS Test Started for %ld frames @%ldx%ld\n", fps_test_frames, cd_size[0], cd_size[1]);
-			fps_test_remaining_frames = fps_test_frames;
-			fps_begin = clock();
-		}
+	log("Grabbing started\n");
 
-		capture_begin = clock();
+	capture_begin = clock();
 
-		while (1) {
-			if (led_manager_get_state()) {
-				if (gfx_lib) {
-					if (osd_enabled) {
-						hCTX.MApi_XC_W2BYTEMSK(4166, 0x8000, 0x8000);
-						hCTX.MApi_XC_W2BYTEMSK(4310, 0x2000, 0x2000);
-					}
+	while (1) {
+		if (led_manager_get_state()) {
+			if (gfx_lib) {
+				if (osd_enabled) {
+					hCTX.MApi_XC_W2BYTEMSK(4166, 0x8000, 0x8000);
+					hCTX.MApi_XC_W2BYTEMSK(4310, 0x2000, 0x2000);
+				}
 
-					hCTX.gfx_InitNonGAPlane(frame_buffer, panel_size[2], panel_size[3], 32, 0);
+				hCTX.gfx_InitNonGAPlane(frame_buffer, panel_size[2], panel_size[3], 32, 0);
 
-					hCTX.MApi_GOP_DWIN_GetWinProperty(win_property);
-					if (win_property[4] != panel_size[2] / 2) {
-						hCTX.gfx_CaptureFrame(frame_buffer, 0, 2, 0, 0, panel_size[2], panel_size[3], 0, 1, 1, 0);
-						usleep(10000);
-						hCTX.gfx_ReleasePlane(frame_buffer, 0);
-						continue;
-					}
+				hCTX.MApi_GOP_DWIN_GetWinProperty(win_property);
+				if (win_property[4] != panel_size[2] / 2) {
+					hCTX.gfx_CaptureFrame(frame_buffer, 0, 2, 0, 0, panel_size[2], panel_size[3], 0, 1, 1, 0);
+					usleep(10000);
+					hCTX.gfx_ReleasePlane(frame_buffer, 0);
+					continue;
+				}
 
-					hCTX.MApi_GOP_DWIN_CaptureOneFrame();
+				hCTX.MApi_GOP_DWIN_CaptureOneFrame();
 
+				if (scale > 1) {
 					hCTX.gfx_InitNonGAPlane(out_buffer, led_config.image_width, led_config.image_height, 32, 0);
 					hCTX.gfx_BitBltScale(frame_buffer, 0, 0, panel_size[2], panel_size[3], out_buffer, 0, 0, led_config.image_width, led_config.image_height);
 					hCTX.gfx_ReleasePlane(out_buffer, 0);
-					hCTX.gfx_ReleasePlane(frame_buffer, 0);
+				}
+				else {
+					memcpy(buffer, frame_buffer, 4 * led_config.image_width * led_config.image_height);
+				}
+				hCTX.gfx_ReleasePlane(frame_buffer, 0);
 
-					if (osd_enabled) {
-						hCTX.MApi_XC_W2BYTEMSK(4166, 0, 0x8000);
-						hCTX.MApi_XC_W2BYTEMSK(4310, 0, 0x2000);
-					}
+				if (osd_enabled) {
+					hCTX.MApi_XC_W2BYTEMSK(4166, 0, 0x8000);
+					hCTX.MApi_XC_W2BYTEMSK(4310, 0, 0x2000);
 				}
-				else if (hCTX.SdDisplay_CaptureScreenF) {
-					hCTX.SdDisplay_CaptureScreenF(cd_size, buffer, capture_info, 0);
-				}
-				else if (hCTX.SdDisplay_CaptureScreenE) {
-					hCTX.SdDisplay_CaptureScreenE(cd_size, buffer, capture_info);
-				}
-				else if (hCTX.SdDisplay_CaptureScreenH) {
-					hCTX.SdDisplay_CaptureScreenH(cd_size, buffer, capture_info, panel_size, 0);
+			}
+			else if (hCTX.SdDisplay_CaptureScreenF) {
+				hCTX.SdDisplay_CaptureScreenF(cd_size, buffer, capture_info, 0);
+			}
+			else if (hCTX.SdDisplay_CaptureScreenE) {
+				hCTX.SdDisplay_CaptureScreenE(cd_size, buffer, capture_info);
+			}
+			else if (hCTX.SdDisplay_CaptureScreenH) {
+				hCTX.SdDisplay_CaptureScreenH(cd_size, buffer, capture_info, panel_size, 0);
+			}
+
+			if (led_manager_argb8888_to_leds(buffer, &data[header_size])) {
+				if (external_led_enabled) {
+					data[data_size - 1] = external_led_state;
 				}
 
-				if (led_manager_argb8888_to_leds(buffer, &data[header_size])) {
-					if (external_led_enabled) {
-						data[data_size - 1] = external_led_state;
-					}
-					bytesWritten = write(serial, data, data_size);
+				bytesWritten = 0;
+				bytesRemaining = data_size;
+				while (bytesRemaining > 0) {
+					bytesWritten = write(serial, data + bytesWritten, bytesRemaining);
+					bytesRemaining -= bytesWritten;
+				}
 
-					fps_counter++;
-					if (black_border_enabled && fps_counter >= 30) {
-						fps_counter = 0;
-						if (black_border_state) {
-							if (led_manager_get_borders(buffer, &h_new_border, &v_new_border)) {
-								if (h_border != h_new_border || v_border != v_new_border) {
-									counter = 0;
-									h_border = h_new_border;
-									v_border = v_new_border;
-								}
-								else if (counter == 5) {
-									led_manager_profile_t profile;
-									profile.index = 1;
-									c = 0;
-									while (profile.index) {
-										profile = led_profiles[c];
-										if (abs(profile.h_padding_percent - h_border) <= 2 && abs(profile.v_padding_percent - v_border) <= 2) {
-											if (led_manager_get_profile_index() != profile.index) {
-												led_manager_set_profile(&profile);
-												log("Switched to %s Mode\n", profile.name);
-											}
-											break;
-										}
-										c++;
-									}
-								}
-								counter++;
+				fps_counter++;
+				if (black_border_enabled && fps_counter >= 30) {
+					fps_counter = 0;
+					if (black_border_state) {
+						if (led_manager_get_borders(buffer, &h_new_border, &v_new_border)) {
+							if (h_border != h_new_border || v_border != v_new_border) {
+								counter = 0;
+								h_border = h_new_border;
+								v_border = v_new_border;
 							}
-						}
-						else {
-							counter = 0;
-							h_border = 0;
-							v_border = 0;
+							else if (counter == 5) {
+								led_manager_profile_t profile;
+								profile.index = 1;
+								c = 0;
+								while (profile.index) {
+									profile = led_profiles[c];
+									if (abs(profile.h_padding_percent - h_border) <= 2 && abs(profile.v_padding_percent - v_border) <= 2) {
+										if (led_manager_get_profile_index() != profile.index) {
+											led_manager_set_profile(&profile);
+											log("Switched to %s Mode\n", profile.name);
+										}
+										break;
+									}
+									c++;
+								}
+							}
+							counter++;
 						}
 					}
-				}
-
-				capture_end = clock();
-				elapsed = capture_end - capture_begin;
-				if (elapsed < capture_frequency && fps_test_frames != 1) {
-					usleep(capture_frequency - elapsed);
-				}
-
-				if (fps_test_frames > 0) {
-					fps_test_remaining_frames--;
-					if (fps_test_remaining_frames == 0) {
-						if (fps_test_frames == 1) {
-							break;
-						}
-						fps_end = clock();
-						log("FPS: %d\n", fps_test_frames * 1000 / ((fps_end - fps_begin) / 1000));
-						fps_test_remaining_frames = fps_test_frames;
-						fps_begin = clock();
+					else {
+						counter = 0;
+						h_border = 0;
+						v_border = 0;
 					}
 				}
-
-				capture_begin = clock();
 			}
-			else {
-				usleep(100000);
-			}
-		}
 
-		if (gfx_lib) {
-			hCTX.MsOS_Dcache_Flush(frame_buffer, frame_buffer_info[1]);
-			hCTX.MsOS_Dcache_Flush(out_buffer, out_buffer_info[1]);
+			capture_end = clock();
+			elapsed = capture_end - capture_begin;
+			if (elapsed < capture_frequency && fps_test_frames != 1) {
+				usleep(capture_frequency - elapsed);
+			}
+
+			if (fps_test_frames > 0) {
+				fps_test_remaining_frames--;
+				if (fps_test_remaining_frames == 0) {
+					if (fps_test_frames == 1) {
+						break;
+					}
+					fps_end = clock();
+					log("FPS: %d\n", fps_test_frames * 1000 / ((fps_end - fps_begin) / 1000));
+					fps_test_remaining_frames = fps_test_frames;
+					fps_begin = clock();
+				}
+			}
+
+			capture_begin = clock();
 		}
 		else {
-			free(buffer);
+			usleep(100000);
 		}
-		;
+	}
 
-		free(data);
-		close(serial);
+	if (gfx_lib) {
+		hCTX.MsOS_Dcache_Flush(frame_buffer, frame_buffer_info[1]);
+		if (scale > 1) {
+			hCTX.MsOS_Dcache_Flush(out_buffer, out_buffer_info[1]);
+		}
 	}
-	else {
-		log("Could not open serial port!\n");
+
+	if (!gfx_lib || scale <= 1) {
+		free(buffer);
 	}
-	
+
+	free(data);
+	close(serial);
+
 	led_manager_deinit();
+	dlclose(h);
 
 	log("Sambilight ended\n");
 	if (fps_test_frames != 1) {
@@ -683,7 +657,7 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 
 	unlink(LOG_FILE);
 	log("SamyGO "LIB_TV_MODELS" lib"LIB_NAME" "LIB_VERSION" - (c) tasshack 2019 - 2021\n");
-	void* h = dlopen(0, RTLD_LAZY);
+	h = dlopen(0, RTLD_LAZY);
 	if (!h) {
 		char* serr = dlerror();
 		log("%s", serr);
@@ -763,6 +737,11 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 			led_config.image_width = 960;
 			led_config.image_height = 540;
 			break;
+		case 7:
+			led_config.image_width = 1920;
+			led_config.image_height = 1080;
+			break;
+		case 5:
 		default:
 			led_config.image_width = 480;
 			led_config.image_height = 270;
@@ -790,28 +769,111 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	if (optstr)
 		fps_test_frames = atol(optstr);
 
-	if (tv_remote_enabled && fps_test_frames > 1) {
+	if (fps_test_frames == 1) {
+		tv_remote_enabled = 0;
+	}
+
+	if (tv_remote_enabled) {
 		if (dyn_sym_tab_init(h, dyn_hook_fn_tab, ARRAYSIZE(dyn_hook_fn_tab)) >= 0) {
 			set_hooks(LIB_HOOKS, ARRAYSIZE(LIB_HOOKS));
 			_hooked = 1;
 		}
 	}
 
+	log("Sambilight started\n");
+	log("H_LEDS: %d, V_LEDS: %d, BOTTOM_GAP: %d, START_OFFSET: %d, COLOR_ORDER: %s, CAPTURE_POS: %d, CLOCKWISE: %d\n", led_config.h_leds_count, led_config.v_leds_count, led_config.bottom_gap, led_config.start_offset, led_config.color_order, led_config.capture_pos, led_config.led_order);
+	log("%s %d %dx%d %dms\n", device, baudrate, led_config.image_width, led_config.image_height, capture_frequency);
+
+	if (black_border_enabled) {
+		log("Black border detection enabled\n");
+	}
+
+	if (tv_remote_enabled) {
+		log("TV Remote control support enabed\n");
+	}
+
+	if (external_led_enabled) {
+		log("External led control enabed\n");
+	}
+
 	strncpy(path, libpath, PATH_MAX);
 	len = strlen(libpath) - 1;
-	while (path[len] && path[len] != '.')
-	{
+	while (path[len] && path[len] != '.') {
 		path[len] = 0;
 		len--;
 	}
 	strncat(path, "config", PATH_MAX);
 	load_profiles_config(path);
-	if (fps_test_frames == 1) {
-		sambiligth_thread(NULL);
-		dlclose(h);
+
+	serial = open(device, O_WRONLY | O_NOCTTY);
+	if (serial >= 0) {
+		struct termios SerialPortSettings;
+		tcgetattr(serial, &SerialPortSettings);
+
+		switch (baudrate) {
+		case 2000000:
+			cfsetispeed(&SerialPortSettings, B2000000);
+			cfsetospeed(&SerialPortSettings, B2000000);
+			break;
+		case 1000000:
+			cfsetispeed(&SerialPortSettings, B1000000);
+			cfsetospeed(&SerialPortSettings, B1000000);
+			break;
+		case 921600:
+			cfsetispeed(&SerialPortSettings, B921600);
+			cfsetospeed(&SerialPortSettings, B921600);
+			break;
+		case 576000:
+			cfsetispeed(&SerialPortSettings, B576000);
+			cfsetospeed(&SerialPortSettings, B576000);
+			break;
+		case 500000:
+			cfsetispeed(&SerialPortSettings, B500000);
+			cfsetospeed(&SerialPortSettings, B500000);
+			break;
+		case 460800:
+			cfsetispeed(&SerialPortSettings, B460800);
+			cfsetospeed(&SerialPortSettings, B460800);
+			break;
+		case 230400:
+			cfsetispeed(&SerialPortSettings, B230400);
+			cfsetospeed(&SerialPortSettings, B230400);
+			break;
+		default:;
+			cfsetispeed(&SerialPortSettings, B115200);
+			cfsetospeed(&SerialPortSettings, B115200);
+		}
+
+		SerialPortSettings.c_cflag &= ~PARENB;
+		SerialPortSettings.c_cflag &= ~CSTOPB;
+		SerialPortSettings.c_cflag |= CS8;
+		SerialPortSettings.c_cflag &= ~CRTSCTS;
+		SerialPortSettings.c_cflag |= CREAD | CLOCAL;
+		SerialPortSettings.c_cflag &= ~HUPCL;
+		SerialPortSettings.c_lflag &= ~ICANON;
+		SerialPortSettings.c_lflag &= ~ECHO;
+		SerialPortSettings.c_lflag &= ~ECHOE;
+		SerialPortSettings.c_lflag &= ~ECHONL;
+		SerialPortSettings.c_lflag &= ~ISIG;
+		SerialPortSettings.c_iflag &= ~(IXON | IXOFF | IXANY);
+		SerialPortSettings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
+		SerialPortSettings.c_oflag &= ~OPOST;
+		SerialPortSettings.c_oflag &= ~ONLCR;
+		SerialPortSettings.c_cc[VTIME] = 1;
+		SerialPortSettings.c_cc[VMIN] = 0;
+		tcsetattr(serial, TCSANOW, &SerialPortSettings);
+
+		if (fps_test_frames == 1) {
+			sambiligth_thread(NULL);
+			return;
+		}
+
+		pthread_create(&thread, NULL, &sambiligth_thread, NULL);
 	}
 	else {
-		pthread_create(&thread, NULL, &sambiligth_thread, NULL);
+		log("Could not open serial port!\n");
+		dlclose(h);
+		log("Sambilight ended\n");
 	}
 }
 
