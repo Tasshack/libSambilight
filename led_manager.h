@@ -23,6 +23,13 @@ typedef struct {
 	unsigned char led_order;
 } led_manager_config_t;
 
+typedef struct {
+	int x1;
+	int x2;
+	int y1;
+	int y2;
+} led_manager_led_t;
+
 int led_manager_argb8888_to_leds(const unsigned char *buffer, unsigned char *data);
 int led_manager_init(led_manager_config_t * config, led_manager_profile_t * profile);
 int led_manager_set_profile(const led_manager_profile_t* profile);
@@ -35,4 +42,6 @@ int led_manager_set_intensity(unsigned int intensity, unsigned int current);
 int led_manager_get_intensity();
 unsigned char led_manager_get_borders(const unsigned char* buffer, unsigned short* h_border, unsigned short* v_border);
 void led_manager_deinit();
+led_manager_led_t* led_manager_get_leds();
+unsigned char led_manager_get_channel(char type);
 #endif

@@ -19,13 +19,6 @@
      _a > _b ? _a : _b; })
 
 typedef struct {
-	int x1;
-	int x2;
-	int y1;
-	int y2;
-} led_manager_led_t;
-
-typedef struct {
 	led_manager_config_t config;
 	led_manager_led_t* leds;
 	led_manager_profile_t current_profile;
@@ -281,7 +274,7 @@ static int led_manager_increment_value(short* currentValue, short newValue, unsi
 	return 0;
 }
 
-static unsigned char led_manager_get_channel(char type)
+unsigned char led_manager_get_channel(char type)
 {
 	switch (type) {
 	case 'b':
@@ -305,12 +298,12 @@ int led_manager_calculate_area()
 	v_padding_px = ((led_manager.current_profile.v_padding_percent / 100.0) * led_manager.config.image_width);
 	h_padding_px = ((led_manager.current_profile.h_padding_percent / 100.0) * led_manager.config.image_height);
 
-	padded_width = led_manager.config.image_width - (v_padding_px * 2) - 1;
-	padded_height = led_manager.config.image_height - (h_padding_px * 2) - 1;
+	padded_width = led_manager.config.image_width - (v_padding_px * 2);
+	padded_height = led_manager.config.image_height - (h_padding_px * 2);
 
 	vertical_depth = ((led_manager.current_profile.vertical_depth_percent / 100.0) * padded_width);
 	horizontal_depth = ((led_manager.current_profile.horizontal_depth_percent / 100.0) * padded_height);
-
+	
 	x_area = (float)padded_width / led_manager.config.h_leds_count;
 	y_area = (float)padded_height / led_manager.config.v_leds_count;
 
@@ -337,18 +330,18 @@ int led_manager_calculate_area()
 				led_manager.leds[index].y1 = h_padding_px;
 			}
 			else {
-				led_manager.leds[index].y1 = led_manager.config.image_height - vertical_depth - h_padding_px - 1;
+				led_manager.leds[index].y1 = led_manager.config.image_height - horizontal_depth - h_padding_px - 1;
 			}
-			led_manager.leds[index].y2 = led_manager.leds[index].y1 + vertical_depth;
+			led_manager.leds[index].y2 = led_manager.leds[index].y1 + horizontal_depth;
 
-			led_manager.leds[index].x1 = (short)ceilf(x_area * i) + v_padding_px - overlap_px_x;
-			led_manager.leds[index].x2 = led_manager.leds[index].x1 + x_area + overlap_px_x + 1;
+			led_manager.leds[index].x1 = floor(x_area * i) + v_padding_px - overlap_px_x;
+			led_manager.leds[index].x2 = ceil((x_area * (i + 1)) - 1) + v_padding_px + overlap_px_x + 1;
 
 			if (led_manager.leds[index].x1 < 0) {
 				led_manager.leds[index].x1 = 0;
 			}
-			if (led_manager.leds[index].x2 >= padded_width) {
-				led_manager.leds[index].x2 = padded_width - 1;
+			if (led_manager.leds[index].x2 >= led_manager.config.image_width) {
+				led_manager.leds[index].x2 = led_manager.config.image_width - 1;
 			}
 		}
 	}
@@ -361,21 +354,21 @@ int led_manager_calculate_area()
 			}
 
 			if (j == 0) {
-				led_manager.leds[index].x1 = led_manager.config.image_width - horizontal_depth - v_padding_px - 1;
+				led_manager.leds[index].x1 = led_manager.config.image_width - vertical_depth - v_padding_px - 1;
 			}
 			else {
 				led_manager.leds[index].x1 = v_padding_px;
 			}
-			led_manager.leds[index].x2 = led_manager.leds[index].x1 + horizontal_depth;
+			led_manager.leds[index].x2 = led_manager.leds[index].x1 + vertical_depth;
 
-			led_manager.leds[index].y1 = (short)ceilf(y_area * i) + h_padding_px - overlap_px_y;
-			led_manager.leds[index].y2 = led_manager.leds[index].y1 + y_area + overlap_px_y;
+			led_manager.leds[index].y1 = floor(y_area * i) + h_padding_px - overlap_px_y;
+			led_manager.leds[index].y2 = ceil((y_area * (i + 1)) - 1) + h_padding_px + overlap_px_y;
 
 			if (led_manager.leds[index].y1 < 0) {
 				led_manager.leds[index].y1 = 0;
 			}
-			if (led_manager.leds[index].y2 >= padded_height) {
-				led_manager.leds[index].y2 = padded_height - 1;
+			if (led_manager.leds[index].y2 >= led_manager.config.image_height) {
+				led_manager.leds[index].y2 = led_manager.config.image_height - 1;
 			}
 		}
 	}
@@ -386,19 +379,19 @@ int led_manager_calculate_area()
 int led_manager_recalculate_profile()
 {
 	if (memcmp(&led_manager.current_profile, &led_manager.new_profile, sizeof(led_manager_profile_t))) {
-		unsigned int area_changed = led_manager_increment_value(&led_manager.current_profile.v_padding_percent, led_manager.new_profile.v_padding_percent, 1);
-		area_changed = led_manager_increment_value(&led_manager.current_profile.h_padding_percent, led_manager.new_profile.h_padding_percent, 1) || area_changed;
-		area_changed = led_manager_increment_value(&led_manager.current_profile.horizontal_depth_percent, led_manager.new_profile.horizontal_depth_percent, 1) || area_changed;
-		area_changed = led_manager_increment_value(&led_manager.current_profile.vertical_depth_percent, led_manager.new_profile.vertical_depth_percent, 1) || area_changed;
-		area_changed = led_manager_increment_value(&led_manager.current_profile.overlap_percent, led_manager.new_profile.overlap_percent, 1) || area_changed;
+		unsigned int area_changed = led_manager_increment_value(&led_manager.current_profile.v_padding_percent, led_manager.new_profile.v_padding_percent, 1) != 0;
+		area_changed = led_manager_increment_value(&led_manager.current_profile.h_padding_percent, led_manager.new_profile.h_padding_percent, 1) != 0 || area_changed;
+		area_changed = led_manager_increment_value(&led_manager.current_profile.horizontal_depth_percent, led_manager.new_profile.horizontal_depth_percent, 1) != 0 || area_changed;
+		area_changed = led_manager_increment_value(&led_manager.current_profile.vertical_depth_percent, led_manager.new_profile.vertical_depth_percent, 1) != 0 || area_changed;
+		area_changed = led_manager_increment_value(&led_manager.current_profile.overlap_percent, led_manager.new_profile.overlap_percent, 1) != 0 || area_changed;
 
 		if (area_changed) {
 			led_manager_calculate_area();
 		}
 
-		unsigned int profile_changed = led_manager_increment_value(&led_manager.current_profile.value_gain_percent, led_manager.new_profile.value_gain_percent, 4);
-		profile_changed = led_manager_increment_value(&led_manager.current_profile.saturation_gain_percent, led_manager.new_profile.saturation_gain_percent, 4) || profile_changed;
-		profile_changed = led_manager_increment_value(&led_manager.current_profile.brightness_correction, led_manager.new_profile.brightness_correction, 2) || profile_changed;
+		unsigned int profile_changed = led_manager_increment_value(&led_manager.current_profile.value_gain_percent, led_manager.new_profile.value_gain_percent, 4) != 0;
+		profile_changed = led_manager_increment_value(&led_manager.current_profile.saturation_gain_percent, led_manager.new_profile.saturation_gain_percent, 4) != 0 || profile_changed;
+		profile_changed = led_manager_increment_value(&led_manager.current_profile.brightness_correction, led_manager.new_profile.brightness_correction, 2) != 0 || profile_changed;
 
 		if (profile_changed) {
 			led_manager.fsaturation = led_manager.current_profile.saturation_gain_percent / 100.0;
@@ -598,4 +591,8 @@ int led_manager_print_area(char* buffer)
 		strcat(buffer, buff);
 	}
 	return 0;
+}
+
+led_manager_led_t* led_manager_get_leds() {
+	return led_manager.leds;
 }

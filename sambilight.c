@@ -33,6 +33,7 @@
 #include <glob.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include <math.h>
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -49,8 +50,8 @@
 #include "jsmn.h"
 
 
-unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 0, tv_remote_enabled = 1, gfx_lib = 1;
-unsigned long baudrate = 115200, fps_test_frames = 0, capture_frequency = 20;
+unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 0, tv_remote_enabled = 1, gfx_lib = 1, test_pattern = 0, default_profile = 0, test_capture = 0;
+unsigned long baudrate = 921600, fps_test_frames = 0, capture_frequency = 20;
 int serial;
 void* h;
 led_manager_config_t led_config = { 35, 19, 7, 68, 480, 270, "RGB", 0, 1 };
@@ -61,11 +62,26 @@ STATIC int show_msg_box(const char* text);
 //////////////////////////////////////////////////////////////////////////////
 
 typedef union {
-	const void* procs[34];
+	const void* procs[48];
 	struct {
 		const int(*SdDisplay_CaptureScreenE)(int*, unsigned char*, int*);
 		const int(*SdDisplay_CaptureScreenF)(int*, unsigned char*, int*, int);
 		const int(*SdDisplay_CaptureScreenH)(int*, unsigned char*, int*, int*, int);
+
+		void* (*operator_new)(unsigned int);
+		const int (*SCGC_Construct)(void* this, int);
+		const int (*SCGC_Create)(void* this);
+		const int (*SCGC_Destroy)(void* this);
+		const int (*SCGC_Destruct)(void* this);
+		const int (*SCBaseGC_Clear)(void* this, int);
+		const int (*SCBaseGC_Flush)(void* this, int);
+		const int (*SCGC_FillRect)(void*, unsigned int, int, int, int, int);
+		const int (*SCGC_DrawText)(void* this, int x, int y, unsigned short* text, int one);
+		const int (*SCGC_SetFontSize)(void* this, unsigned int size);
+		const int (*SCGC_SetFont)(void* this, void* scfont);
+		const int (*SCGC_SetFontStyle)(void* this, unsigned int style);
+		const int (*SCGC_SetFgColor)(void* this, unsigned int color);
+		void* (*CUSBAppResUtil_GetDefaultFont)(void);
 
 		int* g_IPanel;
 		void* g_TaskManager;
@@ -108,6 +124,22 @@ samyGO_whacky_t hCTX =
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP23SdDisplay_CaptureInfo_t",
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP23SdDisplay_CaptureInfo_t12SdMainChip_k",
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP24SdVideoCommonFrameData_tP8SdRect_t12SdMainChip_k",
+
+	// libText
+	(const void*)"_Znwj",
+	(const void*)"_ZN4SCGCC2El",
+	(const void*)"_ZN8SCBaseGC6CreateEv",
+	(const void*)"_ZN4SCGC7DestroyEv",
+	(const void*)"_ZN4SCGCD2Ev",
+	(const void*)"_ZN4SCGC5ClearEPN6Shadow9BasicType4RectE",
+	(const void*)"_ZN8SCBaseGC5FlushEPN6Shadow9BasicType4RectE",
+	(const void*)"_ZN4SCGC8FillRectEN6Shadow5ColorEllll",
+	(const void*)"_ZN4SCGC8DrawTextEllPtl",
+	(const void*)"_ZN4SCGC11SetFontSizeEl",
+	(const void*)"_ZN4SCGC7SetFontEP6SCFont",
+	(const void*)"_ZN4SCGC12SetFontStyleEl",
+	(const void*)"_ZN4SCGC10SetFgColorEN6Shadow5ColorE",
+	(const void*)"_ZN14CUSBAppResUtil14GetDefaultFontEv",
 
 	// libAlert
 	(const void*)"g_IPanel",
@@ -241,8 +273,180 @@ STATIC hook_entry_t LIB_HOOKS[] =
 #undef _HOOK_ENTRY
 };
 
-void* sambiligth_thread(void* params) {
+void save_capture(const unsigned char* frame, unsigned int width, unsigned int heigth, const char* color_order, unsigned int capture_pos) {
+	unsigned char bmpHeader[54] = { 0x42, 0x4d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x36, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	unsigned char* buffer;
+	int i, j, r = 2, g = 1, b = 0;
+	unsigned int bufSize, in, out;
+	FILE* file;
 
+	unsigned char* bmpSize = (unsigned char*)&bufSize;
+	unsigned char* bmpWidth = (unsigned char*)&width;
+	unsigned char* bmpHeight = (unsigned char*)&heigth;
+
+	for (i = 0; i < 3; i++) {
+		switch (color_order[i]) {
+		case 'b':
+		case 'B':
+			b = 2 - i;
+			break;
+		case 'g':
+		case 'G':
+			g = 2 - i;
+			break;
+		case 'r':
+		case 'R':
+			r = 2 - i;
+			break;
+		default:;
+		}
+	}
+
+	bmpHeader[2] = bmpSize[0];
+	bmpHeader[3] = bmpSize[1];
+	bmpHeader[4] = bmpSize[2];
+	bmpHeader[5] = bmpSize[3];
+	bmpHeader[18] = bmpWidth[0];
+	bmpHeader[19] = bmpWidth[1];
+	bmpHeader[22] = bmpHeight[0];
+	bmpHeader[23] = bmpHeight[1];
+
+	bufSize = 4 * width * heigth + sizeof(bmpHeader);
+	buffer = malloc(bufSize);
+	memset(buffer, 0, bufSize);
+	memcpy(buffer, bmpHeader, sizeof(bmpHeader));
+
+	for (i = 0; i < heigth; i++) {
+		for (j = 0; j < width * 4; j += 4) {
+			out = i * width * 4 + j + sizeof(bmpHeader);
+
+			in = i * width * 4 + width * 4 - j;
+			if (capture_pos == 1)
+				in = ((heigth - 1) * width * 4) - in;
+
+			buffer[out + r] = frame[in - 2];
+			buffer[out + g] = frame[in - 3];
+			buffer[out + b] = frame[in - 4];
+		}
+	}
+
+	file = fopen("/dtv/Sambilight.bmp", "wb");
+	if (file) {
+		fseek(file, 0, SEEK_SET);
+		fwrite(buffer, 1, bufSize, file);
+		fclose(file);
+	}
+
+	free(buffer);
+}
+
+void render_areas(const led_manager_led_t* leds, unsigned short leds_count, unsigned short width, unsigned short height) {
+	int x, y, h, w, i;
+	char text[10] = "";
+	unsigned short text16[8] = {};
+	unsigned int color = 0;
+	unsigned char* colorPtr = (unsigned char*)&color;
+
+	void* scgc = hCTX.operator_new(0x170);
+	hCTX.SCGC_Construct(scgc, 0);
+	hCTX.SCGC_Create(scgc);
+	hCTX.SCBaseGC_Clear(scgc, 0);
+	hCTX.SCGC_SetFont(scgc, hCTX.CUSBAppResUtil_GetDefaultFont());
+	hCTX.SCGC_SetFontSize(scgc, 10);
+	hCTX.SCGC_SetFontStyle(scgc, 0);
+
+	colorPtr[3] = 190;
+
+	for (i = leds_count - 1; i >= 0; i--) {
+		memset(text, 0, sizeof(text));
+		sprintf(text, "%03u", i);
+
+		switch (i % 13) {
+		case 1:
+			colorPtr[2] = 255;
+			colorPtr[1] = 0;
+			colorPtr[0] = 0;
+			break;
+		case 2:
+			colorPtr[2] = 0;
+			colorPtr[1] = 255;
+			colorPtr[0] = 0;
+			break;
+		case 3:
+			colorPtr[2] = 0;
+			colorPtr[1] = 0;
+			colorPtr[0] = 255;
+			break;
+		case 4:
+			colorPtr[2] = 255;
+			colorPtr[1] = 0;
+			colorPtr[0] = 255;
+			break;
+		case 5:
+			colorPtr[2] = 0;
+			colorPtr[1] = 255;
+			colorPtr[0] = 255;
+			break;
+		case 6:
+			colorPtr[2] = 255;
+			colorPtr[1] = 255;
+			colorPtr[0] = 0;
+			break;
+		case 7:
+			colorPtr[2] = 128;
+			colorPtr[1] = 0;
+			colorPtr[0] = 255;
+			break;
+		case 8:
+			colorPtr[2] = 0;
+			colorPtr[1] = 128;
+			colorPtr[0] = 255;
+			break;
+		case 9:
+			colorPtr[2] = 128;
+			colorPtr[1] = 255;
+			colorPtr[0] = 0;
+			break;
+		case 10:
+			colorPtr[2] = 255;
+			colorPtr[1] = 0;
+			colorPtr[0] = 128;
+			break;
+		case 11:
+			colorPtr[2] = 0;
+			colorPtr[1] = 255;
+			colorPtr[0] = 128;
+			break;
+		case 12:
+			colorPtr[2] = 255;
+			colorPtr[1] = 128;
+			colorPtr[0] = 0;
+			break;
+		default:
+			colorPtr[2] = 255;
+			colorPtr[1] = 255;
+			colorPtr[0] = 255;
+			break;
+		}
+
+
+		x = floor((width * leds[i].x1) / (float)led_config.image_width / 1.5);
+		y = floor((height * leds[i].y1) / (float)led_config.image_height / 1.5);
+		w = ceil((width * (leds[i].x2 - leds[i].x1)) / (float)led_config.image_width / 1.5);
+		h = ceil((height * (leds[i].y2 - leds[i].y1)) / (float)led_config.image_height / 1.5);
+
+		hCTX.SCGC_FillRect(scgc, color, x, y, w, h);
+		hCTX.SCGC_SetFgColor(scgc, 0xFF000000);
+		hCTX.PCWString_Convert2(text16, text, 3, 1, 0);
+		hCTX.SCGC_DrawText(scgc, x + (w / 2) - 8, y + (h / 2) + 5, text16, 3);
+	}
+
+	hCTX.SCBaseGC_Flush(scgc, 0);
+	hCTX.SCGC_Destroy(scgc);
+	hCTX.SCGC_Destruct(scgc);
+}
+
+void* sambiligth_thread(void* params) {
 	int capture_info[20] = { 0 }, panel_size[4] = { 0, 0, 1920, 1080 }, cd_size[2] = { 0, 0 }, win_property[20];
 	unsigned char* buffer, * data;
 	unsigned long fps_counter = 0, counter = 0, c, data_size, leds_count, fps_test_remaining_frames = 0, bytesWritten, bytesRemaining;
@@ -256,7 +460,7 @@ void* sambiligth_thread(void* params) {
 		pthread_detach(pthread_self());
 	}
 
-	leds_count = led_manager_init(&led_config, &led_profiles[0]);
+	leds_count = led_manager_init(&led_config, &led_profiles[default_profile]);
 
 	data_size = (leds_count * 3) + header_size;
 	if (external_led_enabled) {
@@ -309,14 +513,19 @@ void* sambiligth_thread(void* params) {
 	}
 
 	if (fps_test_frames > 0) {
-		led_manager_set_intensity(100, 1);
-		//char buff[4096] = "";
-		//led_manager_print_area(buff);
-		//LOG(buff);
-
-		log("Test Started for %ld frames\n", fps_test_frames);
-		fps_test_remaining_frames = fps_test_frames;
+		if (fps_test_frames == 1) {
+			led_manager_set_intensity(100, 1);
+		}
+		else {
+			log("Test Started for %ld frames\n", fps_test_frames);
+		}
+		fps_test_remaining_frames = fps_test_frames + 1;
 		fps_begin = clock();
+	}
+	
+	if (test_pattern) {
+		render_areas(led_manager_get_leds(), leds_count, panel_size[2], panel_size[3]);
+		usleep(10000);
 	}
 
 	log("Grabbing started\n");
@@ -441,6 +650,10 @@ void* sambiligth_thread(void* params) {
 		else {
 			usleep(100000);
 		}
+	}
+
+	if (fps_test_frames == 1 && test_capture) {
+		save_capture(buffer, led_config.image_width, led_config.image_height, led_config.color_order, led_config.capture_pos);
 	}
 
 	if (gfx_lib) {
@@ -769,6 +982,18 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	if (optstr)
 		fps_test_frames = atol(optstr);
 
+	optstr = getOptArg(argv, argc, "TEST_PATTERN:");
+	if (optstr)
+		test_pattern = atol(optstr);
+
+	optstr = getOptArg(argv, argc, "TEST_PROFILE:");
+	if (optstr)
+		default_profile = atol(optstr);
+
+	optstr = getOptArg(argv, argc, "TEST_SAVE_CAPTURE:");
+	if (optstr)
+		test_capture = atol(optstr);
+
 	if (fps_test_frames == 1) {
 		tv_remote_enabled = 0;
 	}
@@ -819,10 +1044,6 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 			cfsetispeed(&SerialPortSettings, B1000000);
 			cfsetospeed(&SerialPortSettings, B1000000);
 			break;
-		case 921600:
-			cfsetispeed(&SerialPortSettings, B921600);
-			cfsetospeed(&SerialPortSettings, B921600);
-			break;
 		case 576000:
 			cfsetispeed(&SerialPortSettings, B576000);
 			cfsetospeed(&SerialPortSettings, B576000);
@@ -839,9 +1060,13 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 			cfsetispeed(&SerialPortSettings, B230400);
 			cfsetospeed(&SerialPortSettings, B230400);
 			break;
-		default:;
+		case 115200:
 			cfsetispeed(&SerialPortSettings, B115200);
 			cfsetospeed(&SerialPortSettings, B115200);
+			break;
+		default:;
+			cfsetispeed(&SerialPortSettings, B921600);
+			cfsetospeed(&SerialPortSettings, B921600);
 		}
 
 		SerialPortSettings.c_cflag &= ~PARENB;
