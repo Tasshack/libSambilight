@@ -34,11 +34,13 @@
 #include <stdarg.h>
 #include <pthread.h>
 #include <math.h>
+#include <sys/syscall.h>
+#include <linux/kdev_t.h>
 
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.0.8"
+#define LIB_VERSION "v1.1.0"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
@@ -51,11 +53,10 @@
 
 
 unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 0, tv_remote_enabled = 1, gfx_lib = 1, test_pattern = 0, default_profile = 0, test_capture = 0;
-unsigned long baudrate = 921600, fps_test_frames = 0, capture_frequency = 20;
+unsigned long fps_test_frames = 0, capture_frequency = 20;
 int serial;
 void* h;
 led_manager_config_t led_config = { 35, 19, 7, 68, 480, 270, "RGB", 0, 1 };
-char device[100] = "/dev/ttyUSB0";
 
 STATIC int show_msg_box(const char* text);
 
@@ -272,6 +273,385 @@ STATIC hook_entry_t LIB_HOOKS[] =
 	{ _HOOK_ENTRY(CViewerApp_t_OnInputOccur, __COUNTER__) }
 #undef _HOOK_ENTRY
 };
+
+STATIC int _hooked = 0;
+EXTERN_C void lib_deinit(void* _h)
+{
+	log(">>> %s\n", __func__);
+
+	if (_hooked)
+		remove_hooks(LIB_HOOKS, ARRAYSIZE(LIB_HOOKS));
+
+	_hooked = 0;
+	log("<<< %s\n", __func__);
+}
+
+
+static int jsoneq(const char* json, jsmntok_t* tok, const char* s) {
+	if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
+		strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
+		return 0;
+	}
+	return -1;
+}
+
+void load_profiles_config(const char* path) {
+	int length, index = 0, s;
+	char* ptr, * json_buffer, tmp[50];
+	jsmn_parser parser;
+	jsmntok_t tokens[128];
+	FILE* config_file;
+
+	config_file = fopen(path, "r");
+	if (config_file) {
+		fseek(config_file, 0, SEEK_END);
+		length = ftell(config_file);
+		fseek(config_file, 0, SEEK_SET);
+		json_buffer = malloc(length);
+		s = fread(json_buffer, 1, length, config_file);
+		fclose(config_file);
+
+		jsmn_init(&parser);
+		int r = jsmn_parse(&parser, json_buffer, length, tokens, sizeof(tokens) / sizeof(tokens[0]));
+		if (r >= 0 && tokens[0].type == JSMN_ARRAY) {
+			for (int i = 1; i < r; i++) {
+				if (tokens[i].type == JSMN_OBJECT) {
+					index++;
+					if (index == 1) {
+						memset(led_profiles, 0, sizeof(led_profiles));
+					}
+					led_profiles[index - 1].index = index;
+
+					log("-------------%d-------------\n", index);
+				}
+				else if (index) {
+					if (jsoneq(json_buffer, &tokens[i], "name") == 0) {
+						s = tokens[i + 1].end - tokens[i + 1].start;
+						if (s > sizeof(led_profiles[index - 1].name) - 1) {
+							s = sizeof(led_profiles[index - 1].name) - 1;
+						}
+						strncpy(led_profiles[index - 1].name, json_buffer + tokens[i + 1].start, s);
+
+						log("Name: %s\n", led_profiles[index - 1].name);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "saturation_gain_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 1) {
+							s = 1;
+						}
+						led_profiles[index - 1].saturation_gain_percent = s;
+
+						log("Saturation Gain: %d%%\n", led_profiles[index - 1].saturation_gain_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "value_gain_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 1) {
+							s = 1;
+						}
+						led_profiles[index - 1].value_gain_percent = s;
+
+						log("Value Gain: %d%%\n", led_profiles[index - 1].value_gain_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "brightness_correction") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < -255) {
+							s = -255;
+						}
+						else if (s > 255) {
+							s = 255;
+						}
+						led_profiles[index - 1].brightness_correction = s;
+
+						log("Brightness Correction: %d\n", led_profiles[index - 1].brightness_correction);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "horizontal_depth_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 0) {
+							s = 0;
+						}
+						else if (s > 100) {
+							s = 100;
+						}
+						led_profiles[index - 1].horizontal_depth_percent = s;
+
+						log("Horizontal Depth: %d%%\n", led_profiles[index - 1].horizontal_depth_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "vertical_depth_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 0) {
+							s = 0;
+						}
+						else if (s > 100) {
+							s = 100;
+						}
+						led_profiles[index - 1].vertical_depth_percent = s;
+
+						log("Vertical Depth: %d%%\n", led_profiles[index - 1].vertical_depth_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "overlap_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 0) {
+							s = 0;
+						}
+						else if (s > 100) {
+							s = 100;
+						}
+						led_profiles[index - 1].overlap_percent = s;
+
+						log("Overlap: %d%%\n", led_profiles[index - 1].overlap_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "h_padding_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 0) {
+							s = 0;
+						}
+						else if (s > 100) {
+							s = 100;
+						}
+						led_profiles[index - 1].h_padding_percent = strtol(tmp, &ptr, 10);
+
+						log("Horizontal Padding: %d%%\n", led_profiles[index - 1].h_padding_percent);
+						i++;
+					}
+					else if (jsoneq(json_buffer, &tokens[i], "v_padding_percent") == 0) {
+						memset(tmp, 0, sizeof(tmp));
+						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
+						s = strtol(tmp, &ptr, 10);
+						if (s < 0) {
+							s = 0;
+						}
+						else if (s > 100) {
+							s = 100;
+						}
+						led_profiles[index - 1].v_padding_percent = s;
+
+						log("Vertical Padding: %d%%\n", led_profiles[index - 1].v_padding_percent);
+						i++;
+					}
+				}
+			}
+			log("%d Profile(s) Loaded From Config\n", index);
+		}
+		else {
+			log("Failed To Parse Config!\n");
+		}
+
+		free(json_buffer);
+	}
+}
+
+static int insmod(const char* module_name) {
+	int fd, ret;
+	size_t image_size;
+	struct stat st;
+	void* image;
+
+	fd = open(module_name, O_RDONLY);
+	if (fd >= 0) {
+		fstat(fd, &st);
+		image_size = st.st_size;
+		image = malloc(image_size);
+		ret = read(fd, image, image_size);
+		syscall(__NR_init_module, image, image_size, "");
+		free(image);
+		close(fd);
+		return 0;
+	}
+	return -1;
+}
+
+static int mknod_acm(const char* device_name) {
+	char dev[50] = "";
+	char cmd[100] = "";
+	FILE* fp;
+	char* ptr;
+	char master_str[10] = "", alias_str[10] = "";
+	uint16_t master, alias;
+
+	sprintf(dev, "/dtv/%s", device_name);
+	if (access(dev, F_OK) == 0) {
+		return 0;
+	}
+
+	memset(dev, 0, sizeof(dev));
+	sprintf(dev, "/sys/class/tty/%s", device_name);
+	if (access(dev, F_OK) != 0) {
+		return -1;
+	}
+
+	sprintf(cmd, "cat %s/dev", dev);
+	fp = popen(cmd, "r");
+	memset(dev, 0, sizeof(dev));
+	ptr = fgets(dev, sizeof(dev), fp);
+	fclose(fp);
+
+	ptr = strstr(dev, ":");
+
+	memcpy(master_str, dev, ptr - dev);
+	master_str[ptr - dev] = 0;
+
+	memcpy(alias_str, ptr + 1, strlen(dev) - (ptr - dev) - 2);
+	alias_str[strlen(dev) - (ptr - dev) - 2] = 0;
+
+	master = atol(master_str);
+	alias = atol(alias_str);
+
+	memset(dev, 0, sizeof(dev));
+	sprintf(dev, "/dtv/%s", device_name);
+
+	//mknod /dtv/ttyACM0 c $(echo $(cat /sys/class/tty/ttyACM0/dev) | tr ":" "\n")
+	return mknod(dev, S_IFCHR | 0666, MKDEV(master, alias));
+}
+
+static int open_serial(const char* device, unsigned int baudrate) {
+	int ser = -1;
+	char dev[50] = "";
+	unsigned char acm = 0;
+
+	if (strlen(device)) {
+		if (strstr(device, "ACM")) {
+			insmod("/lib/modules/cdc-acm.ko");
+			mknod_acm(device);
+		}
+
+		strcpy(dev, device);
+		ser = open(dev, O_WRONLY | O_NOCTTY);
+
+		if (ser < 0) {
+			log("Could not open serial port %s!\n", dev);
+		}
+	}
+	else {
+		sprintf(dev, "%s", "/dev/ttyUSB0");
+		ser = open(dev, O_WRONLY | O_NOCTTY);
+
+		if (ser < 0) {
+			memset(dev, 0, sizeof(dev));
+			sprintf(dev, "%s", "/dev/ttyUSB1");
+			ser = open(dev, O_WRONLY | O_NOCTTY);
+		}
+
+		if (ser < 0) {
+			memset(dev, 0, sizeof(dev));
+			sprintf(dev, "%s", "/dev/ttyUSB2");
+			ser = open(dev, O_WRONLY | O_NOCTTY);
+		}
+
+		if (ser < 0) {
+			insmod("/lib/modules/cdc-acm.ko");
+			acm = 1;
+
+			if (mknod_acm("ttyACM0") == 0) {
+				memset(dev, 0, sizeof(dev));
+				sprintf(dev, "%s", "/dtv/ttyACM0");
+				ser = open(dev, O_WRONLY | O_NOCTTY);
+			}
+			else if (mknod_acm("ttyACM1") == 0) {
+				memset(dev, 0, sizeof(dev));
+				sprintf(dev, "%s", "/dtv/ttyACM1");
+				ser = open(dev, O_WRONLY | O_NOCTTY);
+			}
+			else if (mknod_acm("ttyACM2") == 0) {
+				memset(dev, 0, sizeof(dev));
+				sprintf(dev, "%s", "/dtv/ttyACM2");
+				ser = open(dev, O_WRONLY | O_NOCTTY);
+			}
+		}
+
+		if (ser < 0) {
+			log("Could not find serial port!\n");
+		}
+	}
+
+	if (ser >= 0) {
+		struct termios SerialPortSettings;
+		tcgetattr(serial, &SerialPortSettings);
+
+		if (acm == 0) {
+			switch (baudrate) {
+			case 2000000:
+				cfsetispeed(&SerialPortSettings, B2000000);
+				cfsetospeed(&SerialPortSettings, B2000000);
+				break;
+			case 1000000:
+				cfsetispeed(&SerialPortSettings, B1000000);
+				cfsetospeed(&SerialPortSettings, B1000000);
+				break;
+			case 576000:
+				cfsetispeed(&SerialPortSettings, B576000);
+				cfsetospeed(&SerialPortSettings, B576000);
+				break;
+			case 500000:
+				cfsetispeed(&SerialPortSettings, B500000);
+				cfsetospeed(&SerialPortSettings, B500000);
+				break;
+			case 460800:
+				cfsetispeed(&SerialPortSettings, B460800);
+				cfsetospeed(&SerialPortSettings, B460800);
+				break;
+			case 230400:
+				cfsetispeed(&SerialPortSettings, B230400);
+				cfsetospeed(&SerialPortSettings, B230400);
+				break;
+			case 115200:
+				cfsetispeed(&SerialPortSettings, B115200);
+				cfsetospeed(&SerialPortSettings, B115200);
+				break;
+			default:;
+				cfsetispeed(&SerialPortSettings, B921600);
+				cfsetospeed(&SerialPortSettings, B921600);
+			}
+		}
+
+		SerialPortSettings.c_cflag &= ~PARENB;
+		SerialPortSettings.c_cflag &= ~CSTOPB;
+		SerialPortSettings.c_cflag |= CS8;
+		SerialPortSettings.c_cflag &= ~CRTSCTS;
+		SerialPortSettings.c_cflag |= CREAD | CLOCAL;
+		SerialPortSettings.c_cflag &= ~HUPCL;
+		SerialPortSettings.c_lflag &= ~ICANON;
+		SerialPortSettings.c_lflag &= ~ECHO;
+		SerialPortSettings.c_lflag &= ~ECHOE;
+		SerialPortSettings.c_lflag &= ~ECHONL;
+		SerialPortSettings.c_lflag &= ~ISIG;
+		SerialPortSettings.c_iflag &= ~(IXON | IXOFF | IXANY);
+		SerialPortSettings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
+		SerialPortSettings.c_oflag &= ~OPOST;
+		SerialPortSettings.c_oflag &= ~ONLCR;
+		SerialPortSettings.c_cc[VTIME] = 1;
+		SerialPortSettings.c_cc[VMIN] = 0;
+		tcsetattr(ser, TCSANOW, &SerialPortSettings);
+
+		if (acm) {
+			log("Serial opened %s\n", dev);
+		}
+		else {
+			log("Serial opened %s @%u\n", dev, baudrate);
+		}
+	}
+	return ser;
+}
 
 void save_capture(const unsigned char* frame, unsigned int width, unsigned int heigth, const char* color_order, unsigned int capture_pos) {
 	unsigned char bmpHeader[54] = { 0x42, 0x4d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x36, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
@@ -522,7 +902,7 @@ void* sambiligth_thread(void* params) {
 		fps_test_remaining_frames = fps_test_frames + 1;
 		fps_begin = clock();
 	}
-	
+
 	if (test_pattern) {
 		render_areas(led_manager_get_leds(), leds_count, panel_size[2], panel_size[3]);
 		usleep(10000);
@@ -671,191 +1051,20 @@ void* sambiligth_thread(void* params) {
 	close(serial);
 
 	led_manager_deinit();
-	dlclose(h);
 
 	log("Sambilight ended\n");
+
+	lib_deinit(h);
+	dlclose(h);
+
 	if (fps_test_frames != 1) {
 		pthread_exit(NULL);
 	}
 	return NULL;
 }
 
-static int jsoneq(const char* json, jsmntok_t* tok, const char* s) {
-	if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
-		strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
-		return 0;
-	}
-	return -1;
-}
-
-void load_profiles_config(const char* path) {
-	int length, index = 0, s;
-	char* ptr, * json_buffer, tmp[50];
-	jsmn_parser parser;
-	jsmntok_t tokens[128];
-	FILE* config_file;
-
-	config_file = fopen(path, "r");
-	if (config_file) {
-		fseek(config_file, 0, SEEK_END);
-		length = ftell(config_file);
-		fseek(config_file, 0, SEEK_SET);
-		json_buffer = malloc(length);
-		s = fread(json_buffer, 1, length, config_file);
-		fclose(config_file);
-
-		jsmn_init(&parser);
-		int r = jsmn_parse(&parser, json_buffer, length, tokens, sizeof(tokens) / sizeof(tokens[0]));
-		if (r >= 0 && tokens[0].type == JSMN_ARRAY) {
-			for (int i = 1; i < r; i++) {
-				if (tokens[i].type == JSMN_OBJECT) {
-					index++;
-					if (index == 1) {
-						memset(led_profiles, 0, sizeof(led_profiles));
-					}
-					led_profiles[index - 1].index = index;
-
-					log("-------------%d-------------\n", index);
-				}
-				else if (index) {
-					if (jsoneq(json_buffer, &tokens[i], "name") == 0) {
-						s = tokens[i + 1].end - tokens[i + 1].start;
-						if (s > sizeof(led_profiles[index - 1].name) - 1) {
-							s = sizeof(led_profiles[index - 1].name) - 1;
-						}
-						strncpy(led_profiles[index - 1].name, json_buffer + tokens[i + 1].start, s);
-
-						log("Name: %s\n", led_profiles[index - 1].name);
-						i++;
-					}
-					else if (jsoneq(json_buffer, &tokens[i], "saturation_gain_percent") == 0) {
-						memset(tmp, 0, sizeof(tmp));
-						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
-						s = strtol(tmp, &ptr, 10);
-						if (s < 1) {
-							s = 1;
-						}
-						led_profiles[index - 1].saturation_gain_percent = s;
-
-						log("Saturation Gain: %d%%\n", led_profiles[index - 1].saturation_gain_percent);
-						i++;
-					}
-					else if (jsoneq(json_buffer, &tokens[i], "value_gain_percent") == 0) {
-						memset(tmp, 0, sizeof(tmp));
-						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
-						s = strtol(tmp, &ptr, 10);
-						if (s < 1) {
-							s = 1;
-						}
-						led_profiles[index - 1].value_gain_percent = s;
-
-						log("Value Gain: %d%%\n", led_profiles[index - 1].value_gain_percent);
-						i++;
-					}
-					else if (jsoneq(json_buffer, &tokens[i], "brightness_correction") == 0) {
-						memset(tmp, 0, sizeof(tmp));
-						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
-						s = strtol(tmp, &ptr, 10);
-						if (s < -255) {
-							s = -255;
-						}
-						else if (s > 255) {
-							s = 255;
-						}
-						led_profiles[index - 1].brightness_correction = s;
-
-						log("Brightness Correction: %d\n", led_profiles[index - 1].brightness_correction);
-						i++;
-					}
-					else if (jsoneq(json_buffer, &tokens[i], "horizontal_depth_percent") == 0) {
-						memset(tmp, 0, sizeof(tmp));
-						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
-						s = strtol(tmp, &ptr, 10);
-						if (s < 0) {
-							s = 0;
-						}
-						else if (s > 100) {
-							s = 100;
-						}
-						led_profiles[index - 1].horizontal_depth_percent = s;
-
-						log("Horizontal Depth: %d%%\n", led_profiles[index - 1].horizontal_depth_percent);
-						i++;
-					}
-					else if (jsoneq(json_buffer, &tokens[i], "vertical_depth_percent") == 0) {
-						memset(tmp, 0, sizeof(tmp));
-						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
-						s = strtol(tmp, &ptr, 10);
-						if (s < 0) {
-							s = 0;
-						}
-						else if (s > 100) {
-							s = 100;
-						}
-						led_profiles[index - 1].vertical_depth_percent = s;
-
-						log("Vertical Depth: %d%%\n", led_profiles[index - 1].vertical_depth_percent);
-						i++;
-					}
-					else if (jsoneq(json_buffer, &tokens[i], "overlap_percent") == 0) {
-						memset(tmp, 0, sizeof(tmp));
-						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
-						s = strtol(tmp, &ptr, 10);
-						if (s < 0) {
-							s = 0;
-						}
-						else if (s > 100) {
-							s = 100;
-						}
-						led_profiles[index - 1].overlap_percent = s;
-
-						log("Overlap: %d%%\n", led_profiles[index - 1].overlap_percent);
-						i++;
-					}
-					else if (jsoneq(json_buffer, &tokens[i], "h_padding_percent") == 0) {
-						memset(tmp, 0, sizeof(tmp));
-						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
-						s = strtol(tmp, &ptr, 10);
-						if (s < 0) {
-							s = 0;
-						}
-						else if (s > 100) {
-							s = 100;
-						}
-						led_profiles[index - 1].h_padding_percent = strtol(tmp, &ptr, 10);
-
-						log("Horizontal Padding: %d%%\n", led_profiles[index - 1].h_padding_percent);
-						i++;
-					}
-					else if (jsoneq(json_buffer, &tokens[i], "v_padding_percent") == 0) {
-						memset(tmp, 0, sizeof(tmp));
-						strncpy(tmp, json_buffer + tokens[i + 1].start, tokens[i + 1].end - tokens[i + 1].start);
-						s = strtol(tmp, &ptr, 10);
-						if (s < 0) {
-							s = 0;
-						}
-						else if (s > 100) {
-							s = 100;
-						}
-						led_profiles[index - 1].v_padding_percent = s;
-
-						log("Vertical Padding: %d%%\n", led_profiles[index - 1].v_padding_percent);
-						i++;
-					}
-				}
-			}
-			log("%d Profile(s) Loaded From Config\n", index);
-		}
-		else {
-			log("Failed To Parse Config!\n");
-		}
-
-		free(json_buffer);
-	}
-}
-
 //////////////////////////////////////////////////////////////////////////////
-STATIC int _hooked = 0;
+
 EXTERN_C void lib_init(void* _h, const char* libpath)
 {
 	if (_hooked) {
@@ -865,6 +1074,8 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 
 	int argc;
 	char* argv[512], * optstr, path[PATH_MAX];
+	char device[50] = "";
+	unsigned long baudrate = 921600;
 	pthread_t thread;
 	size_t len;
 
@@ -882,6 +1093,8 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	samyGO_whacky_t_init(h, &hCTX, ARRAYSIZE(hCTX.procs));
 
 	argc = getArgCArgV(libpath, argv);
+	
+	log("Sambilight started\n");
 
 	optstr = getOptArg(argv, argc, "H_LEDS:");
 	if (optstr && strlen(optstr))
@@ -971,8 +1184,8 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		gfx_lib = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "DEVICE:");
-	if (optstr && strlen(optstr))
-		strncpy(device, optstr, strlen(device));
+	if (optstr && strlen(optstr)) 
+		strncpy(device, optstr, sizeof(device));
 
 	optstr = getOptArg(argv, argc, "BAUDRATE:");
 	if (optstr && strlen(optstr))
@@ -1005,9 +1218,8 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		}
 	}
 
-	log("Sambilight started\n");
 	log("H_LEDS: %d, V_LEDS: %d, BOTTOM_GAP: %d, START_OFFSET: %d, COLOR_ORDER: %s, CAPTURE_POS: %d, CLOCKWISE: %d\n", led_config.h_leds_count, led_config.v_leds_count, led_config.bottom_gap, led_config.start_offset, led_config.color_order, led_config.capture_pos, led_config.led_order);
-	log("%s %d %dx%d %dms\n", device, baudrate, led_config.image_width, led_config.image_height, capture_frequency);
+	log("%dx%d %dms\n", led_config.image_width, led_config.image_height, capture_frequency);
 
 	if (black_border_enabled) {
 		log("Black border detection enabled\n");
@@ -1029,88 +1241,22 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	}
 	strncat(path, "config", PATH_MAX);
 	load_profiles_config(path);
-
-	serial = open(device, O_WRONLY | O_NOCTTY);
+	
+	serial = open_serial(device, baudrate);
 	if (serial >= 0) {
-		struct termios SerialPortSettings;
-		tcgetattr(serial, &SerialPortSettings);
-
-		switch (baudrate) {
-		case 2000000:
-			cfsetispeed(&SerialPortSettings, B2000000);
-			cfsetospeed(&SerialPortSettings, B2000000);
-			break;
-		case 1000000:
-			cfsetispeed(&SerialPortSettings, B1000000);
-			cfsetospeed(&SerialPortSettings, B1000000);
-			break;
-		case 576000:
-			cfsetispeed(&SerialPortSettings, B576000);
-			cfsetospeed(&SerialPortSettings, B576000);
-			break;
-		case 500000:
-			cfsetispeed(&SerialPortSettings, B500000);
-			cfsetospeed(&SerialPortSettings, B500000);
-			break;
-		case 460800:
-			cfsetispeed(&SerialPortSettings, B460800);
-			cfsetospeed(&SerialPortSettings, B460800);
-			break;
-		case 230400:
-			cfsetispeed(&SerialPortSettings, B230400);
-			cfsetospeed(&SerialPortSettings, B230400);
-			break;
-		case 115200:
-			cfsetispeed(&SerialPortSettings, B115200);
-			cfsetospeed(&SerialPortSettings, B115200);
-			break;
-		default:;
-			cfsetispeed(&SerialPortSettings, B921600);
-			cfsetospeed(&SerialPortSettings, B921600);
-		}
-
-		SerialPortSettings.c_cflag &= ~PARENB;
-		SerialPortSettings.c_cflag &= ~CSTOPB;
-		SerialPortSettings.c_cflag |= CS8;
-		SerialPortSettings.c_cflag &= ~CRTSCTS;
-		SerialPortSettings.c_cflag |= CREAD | CLOCAL;
-		SerialPortSettings.c_cflag &= ~HUPCL;
-		SerialPortSettings.c_lflag &= ~ICANON;
-		SerialPortSettings.c_lflag &= ~ECHO;
-		SerialPortSettings.c_lflag &= ~ECHOE;
-		SerialPortSettings.c_lflag &= ~ECHONL;
-		SerialPortSettings.c_lflag &= ~ISIG;
-		SerialPortSettings.c_iflag &= ~(IXON | IXOFF | IXANY);
-		SerialPortSettings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
-		SerialPortSettings.c_oflag &= ~OPOST;
-		SerialPortSettings.c_oflag &= ~ONLCR;
-		SerialPortSettings.c_cc[VTIME] = 1;
-		SerialPortSettings.c_cc[VMIN] = 0;
-		tcsetattr(serial, TCSANOW, &SerialPortSettings);
-
 		if (fps_test_frames == 1) {
 			sambiligth_thread(NULL);
 			return;
 		}
 
 		pthread_create(&thread, NULL, &sambiligth_thread, NULL);
+		return;
 	}
-	else {
-		log("Could not open serial port!\n");
-		dlclose(h);
-		log("Sambilight ended\n");
-	}
-}
+	
+	log("Sambilight ended\n");
 
-EXTERN_C void lib_deinit(void* _h)
-{
-	log(">>> %s\n", __func__);
-
-	if (_hooked)
-		remove_hooks(LIB_HOOKS, ARRAYSIZE(LIB_HOOKS));
-
-	_hooked = 0;
-	log("<<< %s\n", __func__);
+	lib_deinit(h);
+	dlclose(h);
 }
 
 //////////////////////////////////////////////////////////////////////////////
