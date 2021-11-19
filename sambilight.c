@@ -40,7 +40,7 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.1.1"
+#define LIB_VERSION "v1.1.2"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
