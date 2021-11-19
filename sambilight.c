@@ -54,7 +54,7 @@
 
 unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 0, tv_remote_enabled = 1, gfx_lib = 1, test_pattern = 0, default_profile = 0, test_capture = 0;
 unsigned long fps_test_frames = 0, capture_frequency = 30;
-int serial;
+int serial = -1;
 void* h;
 led_manager_config_t led_config = { 35, 19, 7, 68, 480, 270, "RGB", 0, 1 };
 
@@ -519,7 +519,7 @@ static int mknod_acm(const char* device_name) {
 }
 
 static int open_serial(const char* device, unsigned int baudrate) {
-	int ser = -1, i;
+	int fd = -1, i;
 	char dev[50] = "";
 
 	if (strlen(device)) {
@@ -529,110 +529,109 @@ static int open_serial(const char* device, unsigned int baudrate) {
 			insmod_cdc_acm();
 			mknod_acm(device);
 		}
-		ser = open(dev, O_RDWR | O_NOCTTY);
+		fd = open(dev, O_RDWR | O_NOCTTY);
 
-		if (ser < 0) {
+		if (fd < 0) {
 			log("Could not open serial port %s!\n", dev);
 		}
 	}
 	else {
-		for (i = 0; i < 3 && ser < 0; i++) {
+		for (i = 0; i < 3 && fd < 0; i++) {
 			memset(dev, 0, sizeof(dev));
 			sprintf(dev, "/dev/ttyUSB%d", i);
-			ser = open(dev, O_RDWR | O_NOCTTY);
+			fd = open(dev, O_RDWR | O_NOCTTY);
 		}
 
-		if (ser < 0) {
+		if (fd < 0) {
 			insmod_cdc_acm();
 
-			for (i = 0; i < 3 && ser < 0; i++) {
+			for (i = 0; i < 3 && fd < 0; i++) {
 				memset(dev, 0, sizeof(dev));
 				sprintf(dev, "/dtv/ttyACM%d", i);
 				if (mknod_acm(dev) == 0) {
-					ser = open(dev, O_RDWR | O_NOCTTY);
+					fd = open(dev, O_RDWR | O_NOCTTY);
 				}
 			}
 		}
 
-		if (ser < 0) {
+		if (fd < 0) {
 			log("Could not find serial port!\n");
 		}
 	}
 
-	if (ser >= 0) {
-		tcflush(serial, TCIFLUSH);
+	if (fd >= 0) {
+		tcflush(fd, TCIFLUSH);
 
-		struct termios SerialPortSettings;
-		tcgetattr(serial, &SerialPortSettings);
+		struct termios port_settings;
+		tcgetattr(fd, &port_settings);
 
 		if (strstr(dev, "ACM")) {
-			SerialPortSettings.c_lflag &= ~ICANON;
-			SerialPortSettings.c_lflag &= ~ECHO;
-			SerialPortSettings.c_lflag &= ~ECHOE;
-			SerialPortSettings.c_lflag &= ~ECHONL;
+			port_settings.c_lflag &= ~ICANON;
+			port_settings.c_lflag &= ~ECHO;
+			port_settings.c_lflag &= ~ECHOE;
+			port_settings.c_lflag &= ~ECHONL;
 
 			log("Serial acm opened %s\n", dev);
 		}
 		else {
-
 			switch (baudrate) {
 			case 2000000:
-				cfsetispeed(&SerialPortSettings, B2000000);
-				cfsetospeed(&SerialPortSettings, B2000000);
+				cfsetispeed(&port_settings, B2000000);
+				cfsetospeed(&port_settings, B2000000);
 				break;
 			case 1000000:
-				cfsetispeed(&SerialPortSettings, B1000000);
-				cfsetospeed(&SerialPortSettings, B1000000);
+				cfsetispeed(&port_settings, B1000000);
+				cfsetospeed(&port_settings, B1000000);
 				break;
 			case 576000:
-				cfsetispeed(&SerialPortSettings, B576000);
-				cfsetospeed(&SerialPortSettings, B576000);
+				cfsetispeed(&port_settings, B576000);
+				cfsetospeed(&port_settings, B576000);
 				break;
 			case 500000:
-				cfsetispeed(&SerialPortSettings, B500000);
-				cfsetospeed(&SerialPortSettings, B500000);
+				cfsetispeed(&port_settings, B500000);
+				cfsetospeed(&port_settings, B500000);
 				break;
 			case 460800:
-				cfsetispeed(&SerialPortSettings, B460800);
-				cfsetospeed(&SerialPortSettings, B460800);
+				cfsetispeed(&port_settings, B460800);
+				cfsetospeed(&port_settings, B460800);
 				break;
 			case 230400:
-				cfsetispeed(&SerialPortSettings, B230400);
-				cfsetospeed(&SerialPortSettings, B230400);
+				cfsetispeed(&port_settings, B230400);
+				cfsetospeed(&port_settings, B230400);
 				break;
 			case 115200:
-				cfsetispeed(&SerialPortSettings, B115200);
-				cfsetospeed(&SerialPortSettings, B115200);
+				cfsetispeed(&port_settings, B115200);
+				cfsetospeed(&port_settings, B115200);
 				break;
 			default:;
-				cfsetispeed(&SerialPortSettings, B921600);
-				cfsetospeed(&SerialPortSettings, B921600);
+				cfsetispeed(&port_settings, B921600);
+				cfsetospeed(&port_settings, B921600);
 			}
 
-			SerialPortSettings.c_cflag &= ~PARENB;
-			SerialPortSettings.c_cflag &= ~CSTOPB;
-			SerialPortSettings.c_cflag |= CS8;
-			SerialPortSettings.c_cflag &= ~CRTSCTS;
-			SerialPortSettings.c_cflag |= CREAD | CLOCAL;
-			SerialPortSettings.c_cflag &= ~HUPCL;
-			SerialPortSettings.c_lflag &= ~ICANON;
-			SerialPortSettings.c_lflag &= ~ECHO;
-			SerialPortSettings.c_lflag &= ~ECHOE;
-			SerialPortSettings.c_lflag &= ~ECHONL;
-			SerialPortSettings.c_lflag &= ~ISIG;
-			SerialPortSettings.c_iflag &= ~(IXON | IXOFF | IXANY);
-			SerialPortSettings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
-			SerialPortSettings.c_oflag &= ~OPOST;
-			SerialPortSettings.c_oflag &= ~ONLCR;
-			SerialPortSettings.c_cc[VTIME] = 1;
-			SerialPortSettings.c_cc[VMIN] = 0;
+			port_settings.c_cflag &= ~PARENB;
+			port_settings.c_cflag &= ~CSTOPB;
+			port_settings.c_cflag |= CS8;
+			port_settings.c_cflag &= ~CRTSCTS;
+			port_settings.c_cflag |= CREAD | CLOCAL;
+			port_settings.c_cflag &= ~HUPCL;
+			port_settings.c_lflag &= ~ICANON;
+			port_settings.c_lflag &= ~ECHO;
+			port_settings.c_lflag &= ~ECHOE;
+			port_settings.c_lflag &= ~ECHONL;
+			port_settings.c_lflag &= ~ISIG;
+			port_settings.c_iflag &= ~(IXON | IXOFF | IXANY);
+			port_settings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
+			port_settings.c_oflag &= ~OPOST;
+			port_settings.c_oflag &= ~ONLCR;
+			port_settings.c_cc[VTIME] = 1;
+			port_settings.c_cc[VMIN] = 0;
 
 			log("Serial opened %s @%u\n", dev, baudrate);
 		}
 
-		tcsetattr(ser, TCSANOW, &SerialPortSettings);
+		tcsetattr(fd, TCSANOW, &port_settings);
 	}
-	return ser;
+	return fd;
 }
 
 void save_capture(const unsigned char* frame, unsigned int width, unsigned int heigth, const char* color_order, unsigned int capture_pos) {
@@ -945,8 +944,6 @@ void* sambiligth_thread(void* params) {
 				}
 
 				bytesWritten = write(serial, data, data_size);
-				tcdrain(serial);
-				tcflush(serial, TCOFLUSH);
 
 				fps_counter++;
 				if (black_border_enabled && fps_counter >= 30) {
