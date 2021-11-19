@@ -859,6 +859,11 @@ void* sambiligth_thread(void* params) {
 
 	gfx_lib = gfx_lib && fps_test_frames != 1 && hCTX.gfx_InitNonGAPlane && hCTX.MsOS_PA2KSEG0 && hCTX.MApi_MMAP_GetInfo && hCTX.gfx_CaptureFrame && hCTX.MApi_GOP_DWIN_CaptureOneFrame && hCTX.MApi_GOP_DWIN_GetWinProperty;
 
+	// TODO: gfx_lib will be ported to H
+	if (gfx_lib && hCTX.SdDisplay_CaptureScreenH) {
+		gfx_lib = 0;
+	}
+
 	if (gfx_lib) {
 		log("gfx_lib enabled\n");
 	}
