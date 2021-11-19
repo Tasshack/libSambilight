@@ -22,7 +22,7 @@ TV_REMOTE=1;			# Enable control with TV remote buttons (Red, Green, Yellow, Blue
 EXTERNAL=0;				# On/Off support for remotely connected leds (Handled on USB device)
 BAUDRATE=921600;		# USB Serial baudrate (High baudrate is recommended)
 GFX_LIB=1;				# Capture directly from graphics driver resulting +50 FPS and prevents UI from lagging during capture (Experimental! Tested on F)
-CAPTURE_FREQ=20;		# Capture frequency in ms, increase this value if your TV having performance issues (Higher the value, lower the refresh rate. Smooting must be handled on USB device)
+CAPTURE_FREQ=30;		# Capture frequency in ms, increase this value if your TV having performance issues (Higher the value, lower the refresh rate. Smooting must be handled on USB device)
 CAPTURE_SIZE=5;			# Higher capture size resulting less flickering and more accurate blacks but it affects overall FPS (1=96x54 2=160x90 3=240x135 4=320x180 5=480x270 6=960x540)
 OSD_CAPTURE=1;			# Capture with OSD (Only works with GFX_LIB=1)
 

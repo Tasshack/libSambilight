@@ -40,7 +40,7 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.1.0"
+#define LIB_VERSION "v1.1.1"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
@@ -53,7 +53,7 @@
 
 
 unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 0, tv_remote_enabled = 1, gfx_lib = 1, test_pattern = 0, default_profile = 0, test_capture = 0;
-unsigned long fps_test_frames = 0, capture_frequency = 20;
+unsigned long fps_test_frames = 0, capture_frequency = 30;
 int serial;
 void* h;
 led_manager_config_t led_config = { 35, 19, 7, 68, 480, 270, "RGB", 0, 1 };
@@ -277,13 +277,11 @@ STATIC hook_entry_t LIB_HOOKS[] =
 STATIC int _hooked = 0;
 EXTERN_C void lib_deinit(void* _h)
 {
-	log(">>> %s\n", __func__);
-
 	if (_hooked)
 		remove_hooks(LIB_HOOKS, ARRAYSIZE(LIB_HOOKS));
 
 	_hooked = 0;
-	log("<<< %s\n", __func__);
+	log("%s\n", __func__);
 }
 
 
@@ -461,41 +459,40 @@ void load_profiles_config(const char* path) {
 	}
 }
 
-static int insmod(const char* module_name) {
-	int fd, ret;
+static int insmod_cdc_acm() {
+	int fd, ret = -1;
 	size_t image_size;
 	struct stat st;
 	void* image;
-
-	fd = open(module_name, O_RDONLY);
+	char* params = "";
+	fd = open("/lib/modules/cdc-acm.ko", O_RDONLY);
 	if (fd >= 0) {
 		fstat(fd, &st);
 		image_size = st.st_size;
 		image = malloc(image_size);
 		ret = read(fd, image, image_size);
-		syscall(__NR_init_module, image, image_size, "");
+		ret = syscall(__NR_init_module, image, image_size, params);
+		usleep(100000);
 		free(image);
 		close(fd);
-		return 0;
 	}
-	return -1;
+	return ret;
 }
 
 static int mknod_acm(const char* device_name) {
-	char dev[50] = "";
-	char cmd[100] = "";
+	char dev[100] = "";
+	char cmd[150] = "";
 	FILE* fp;
 	char* ptr;
 	char master_str[10] = "", alias_str[10] = "";
 	uint16_t master, alias;
 
-	sprintf(dev, "/dtv/%s", device_name);
-	if (access(dev, F_OK) == 0) {
+	if (access(device_name, F_OK) == 0) {
 		return 0;
 	}
 
 	memset(dev, 0, sizeof(dev));
-	sprintf(dev, "/sys/class/tty/%s", device_name);
+	sprintf(dev, "/sys/class/tty/%s", device_name + 4);
 	if (access(dev, F_OK) != 0) {
 		return -1;
 	}
@@ -517,65 +514,43 @@ static int mknod_acm(const char* device_name) {
 	master = atol(master_str);
 	alias = atol(alias_str);
 
-	memset(dev, 0, sizeof(dev));
-	sprintf(dev, "/dtv/%s", device_name);
-
 	//mknod /dtv/ttyACM0 c $(echo $(cat /sys/class/tty/ttyACM0/dev) | tr ":" "\n")
-	return mknod(dev, S_IFCHR | 0666, MKDEV(master, alias));
+	return mknod(device_name, S_IFCHR | 0666, MKDEV(master, alias));
 }
 
 static int open_serial(const char* device, unsigned int baudrate) {
-	int ser = -1;
+	int ser = -1, i;
 	char dev[50] = "";
-	unsigned char acm = 0;
 
 	if (strlen(device)) {
-		if (strstr(device, "ACM")) {
-			insmod("/lib/modules/cdc-acm.ko");
+		strcpy(dev, device);
+
+		if (strstr(dev, "ACM")) {
+			insmod_cdc_acm();
 			mknod_acm(device);
 		}
-
-		strcpy(dev, device);
-		ser = open(dev, O_WRONLY | O_NOCTTY);
+		ser = open(dev, O_RDWR | O_NOCTTY);
 
 		if (ser < 0) {
 			log("Could not open serial port %s!\n", dev);
 		}
 	}
 	else {
-		sprintf(dev, "%s", "/dev/ttyUSB0");
-		ser = open(dev, O_WRONLY | O_NOCTTY);
-
-		if (ser < 0) {
+		for (i = 0; i < 3 && ser < 0; i++) {
 			memset(dev, 0, sizeof(dev));
-			sprintf(dev, "%s", "/dev/ttyUSB1");
-			ser = open(dev, O_WRONLY | O_NOCTTY);
+			sprintf(dev, "/dev/ttyUSB%d", i);
+			ser = open(dev, O_RDWR | O_NOCTTY);
 		}
 
 		if (ser < 0) {
-			memset(dev, 0, sizeof(dev));
-			sprintf(dev, "%s", "/dev/ttyUSB2");
-			ser = open(dev, O_WRONLY | O_NOCTTY);
-		}
+			insmod_cdc_acm();
 
-		if (ser < 0) {
-			insmod("/lib/modules/cdc-acm.ko");
-			acm = 1;
-
-			if (mknod_acm("ttyACM0") == 0) {
+			for (i = 0; i < 3 && ser < 0; i++) {
 				memset(dev, 0, sizeof(dev));
-				sprintf(dev, "%s", "/dtv/ttyACM0");
-				ser = open(dev, O_WRONLY | O_NOCTTY);
-			}
-			else if (mknod_acm("ttyACM1") == 0) {
-				memset(dev, 0, sizeof(dev));
-				sprintf(dev, "%s", "/dtv/ttyACM1");
-				ser = open(dev, O_WRONLY | O_NOCTTY);
-			}
-			else if (mknod_acm("ttyACM2") == 0) {
-				memset(dev, 0, sizeof(dev));
-				sprintf(dev, "%s", "/dtv/ttyACM2");
-				ser = open(dev, O_WRONLY | O_NOCTTY);
+				sprintf(dev, "/dtv/ttyACM%d", i);
+				if (mknod_acm(dev) == 0) {
+					ser = open(dev, O_RDWR | O_NOCTTY);
+				}
 			}
 		}
 
@@ -585,10 +560,21 @@ static int open_serial(const char* device, unsigned int baudrate) {
 	}
 
 	if (ser >= 0) {
+		tcflush(serial, TCIFLUSH);
+
 		struct termios SerialPortSettings;
 		tcgetattr(serial, &SerialPortSettings);
 
-		if (acm == 0) {
+		if (strstr(dev, "ACM")) {
+			SerialPortSettings.c_lflag &= ~ICANON;
+			SerialPortSettings.c_lflag &= ~ECHO;
+			SerialPortSettings.c_lflag &= ~ECHOE;
+			SerialPortSettings.c_lflag &= ~ECHONL;
+
+			log("Serial acm opened %s\n", dev);
+		}
+		else {
+
 			switch (baudrate) {
 			case 2000000:
 				cfsetispeed(&SerialPortSettings, B2000000);
@@ -622,33 +608,29 @@ static int open_serial(const char* device, unsigned int baudrate) {
 				cfsetispeed(&SerialPortSettings, B921600);
 				cfsetospeed(&SerialPortSettings, B921600);
 			}
-		}
 
-		SerialPortSettings.c_cflag &= ~PARENB;
-		SerialPortSettings.c_cflag &= ~CSTOPB;
-		SerialPortSettings.c_cflag |= CS8;
-		SerialPortSettings.c_cflag &= ~CRTSCTS;
-		SerialPortSettings.c_cflag |= CREAD | CLOCAL;
-		SerialPortSettings.c_cflag &= ~HUPCL;
-		SerialPortSettings.c_lflag &= ~ICANON;
-		SerialPortSettings.c_lflag &= ~ECHO;
-		SerialPortSettings.c_lflag &= ~ECHOE;
-		SerialPortSettings.c_lflag &= ~ECHONL;
-		SerialPortSettings.c_lflag &= ~ISIG;
-		SerialPortSettings.c_iflag &= ~(IXON | IXOFF | IXANY);
-		SerialPortSettings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
-		SerialPortSettings.c_oflag &= ~OPOST;
-		SerialPortSettings.c_oflag &= ~ONLCR;
-		SerialPortSettings.c_cc[VTIME] = 1;
-		SerialPortSettings.c_cc[VMIN] = 0;
-		tcsetattr(ser, TCSANOW, &SerialPortSettings);
+			SerialPortSettings.c_cflag &= ~PARENB;
+			SerialPortSettings.c_cflag &= ~CSTOPB;
+			SerialPortSettings.c_cflag |= CS8;
+			SerialPortSettings.c_cflag &= ~CRTSCTS;
+			SerialPortSettings.c_cflag |= CREAD | CLOCAL;
+			SerialPortSettings.c_cflag &= ~HUPCL;
+			SerialPortSettings.c_lflag &= ~ICANON;
+			SerialPortSettings.c_lflag &= ~ECHO;
+			SerialPortSettings.c_lflag &= ~ECHOE;
+			SerialPortSettings.c_lflag &= ~ECHONL;
+			SerialPortSettings.c_lflag &= ~ISIG;
+			SerialPortSettings.c_iflag &= ~(IXON | IXOFF | IXANY);
+			SerialPortSettings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
+			SerialPortSettings.c_oflag &= ~OPOST;
+			SerialPortSettings.c_oflag &= ~ONLCR;
+			SerialPortSettings.c_cc[VTIME] = 1;
+			SerialPortSettings.c_cc[VMIN] = 0;
 
-		if (acm) {
-			log("Serial opened %s\n", dev);
-		}
-		else {
 			log("Serial opened %s @%u\n", dev, baudrate);
 		}
+
+		tcsetattr(ser, TCSANOW, &SerialPortSettings);
 	}
 	return ser;
 }
@@ -905,9 +887,9 @@ void* sambiligth_thread(void* params) {
 
 	if (test_pattern) {
 		render_areas(led_manager_get_leds(), leds_count, panel_size[2], panel_size[3]);
-		usleep(10000);
 	}
 
+	usleep(10000);
 	log("Grabbing started\n");
 
 	capture_begin = clock();
@@ -962,12 +944,9 @@ void* sambiligth_thread(void* params) {
 					data[data_size - 1] = external_led_state;
 				}
 
-				bytesWritten = 0;
-				bytesRemaining = data_size;
-				while (bytesRemaining > 0) {
-					bytesWritten = write(serial, data + bytesWritten, bytesRemaining);
-					bytesRemaining -= bytesWritten;
-				}
+				bytesWritten = write(serial, data, data_size);
+				tcdrain(serial);
+				tcflush(serial, TCOFLUSH);
 
 				fps_counter++;
 				if (black_border_enabled && fps_counter >= 30) {
@@ -1093,8 +1072,6 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	samyGO_whacky_t_init(h, &hCTX, ARRAYSIZE(hCTX.procs));
 
 	argc = getArgCArgV(libpath, argv);
-	
-	log("Sambilight started\n");
 
 	optstr = getOptArg(argv, argc, "H_LEDS:");
 	if (optstr && strlen(optstr))
@@ -1184,7 +1161,7 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		gfx_lib = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "DEVICE:");
-	if (optstr && strlen(optstr)) 
+	if (optstr && strlen(optstr))
 		strncpy(device, optstr, sizeof(device));
 
 	optstr = getOptArg(argv, argc, "BAUDRATE:");
@@ -1218,6 +1195,8 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		}
 	}
 
+	log("Sambilight started\n");
+
 	log("H_LEDS: %d, V_LEDS: %d, BOTTOM_GAP: %d, START_OFFSET: %d, COLOR_ORDER: %s, CAPTURE_POS: %d, CLOCKWISE: %d\n", led_config.h_leds_count, led_config.v_leds_count, led_config.bottom_gap, led_config.start_offset, led_config.color_order, led_config.capture_pos, led_config.led_order);
 	log("%dx%d %dms\n", led_config.image_width, led_config.image_height, capture_frequency);
 
@@ -1241,7 +1220,7 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	}
 	strncat(path, "config", PATH_MAX);
 	load_profiles_config(path);
-	
+
 	serial = open_serial(device, baudrate);
 	if (serial >= 0) {
 		if (fps_test_frames == 1) {
@@ -1252,7 +1231,7 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		pthread_create(&thread, NULL, &sambiligth_thread, NULL);
 		return;
 	}
-	
+
 	log("Sambilight ended\n");
 
 	lib_deinit(h);
