@@ -566,10 +566,16 @@ static int open_serial(const char* device, unsigned int baudrate) {
 		tcgetattr(fd, &port_settings);
 
 		if (strstr(dev, "ACM")) {
+			port_settings.c_cflag &= ~CRTSCTS;
+			port_settings.c_cflag |= CREAD | CLOCAL;
+			port_settings.c_cflag &= ~HUPCL;
 			port_settings.c_lflag &= ~ICANON;
 			port_settings.c_lflag &= ~ECHO;
 			port_settings.c_lflag &= ~ECHOE;
 			port_settings.c_lflag &= ~ECHONL;
+			port_settings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
+			port_settings.c_oflag &= ~OPOST;
+			port_settings.c_oflag &= ~ONLCR;
 
 			log("Serial acm opened %s\n", dev);
 		}
