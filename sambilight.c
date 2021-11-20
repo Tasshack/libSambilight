@@ -40,7 +40,7 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.1.2"
+#define LIB_VERSION "v1.2.0"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
@@ -459,13 +459,13 @@ void load_profiles_config(const char* path) {
 	}
 }
 
-static int insmod_cdc_acm() {
+static int insmod(const char* module_name) {
 	int fd, ret = -1;
 	size_t image_size;
 	struct stat st;
 	void* image;
 	char* params = "";
-	fd = open("/lib/modules/cdc-acm.ko", O_RDONLY);
+	fd = open(module_name, O_RDONLY);
 	if (fd >= 0) {
 		fstat(fd, &st);
 		image_size = st.st_size;
@@ -526,8 +526,12 @@ static int open_serial(const char* device, unsigned int baudrate) {
 		strcpy(dev, device);
 
 		if (strstr(dev, "ACM")) {
-			insmod_cdc_acm();
+			insmod("/lib/modules/cdc-acm.ko");
 			mknod_acm(device);
+		}
+		else {
+			insmod("/lib/modules/usbserial.ko");
+			insmod("/lib/modules/ftdi_sio.ko");
 		}
 		fd = open(dev, O_RDWR | O_NOCTTY);
 
@@ -536,6 +540,9 @@ static int open_serial(const char* device, unsigned int baudrate) {
 		}
 	}
 	else {
+		insmod("/lib/modules/usbserial.ko");
+		insmod("/lib/modules/ftdi_sio.ko");
+
 		for (i = 0; i < 3 && fd < 0; i++) {
 			memset(dev, 0, sizeof(dev));
 			sprintf(dev, "/dev/ttyUSB%d", i);
@@ -543,7 +550,7 @@ static int open_serial(const char* device, unsigned int baudrate) {
 		}
 
 		if (fd < 0) {
-			insmod_cdc_acm();
+			insmod("/lib/modules/cdc-acm.ko");
 
 			for (i = 0; i < 3 && fd < 0; i++) {
 				memset(dev, 0, sizeof(dev));
@@ -856,6 +863,10 @@ void* sambiligth_thread(void* params) {
 		panel_size[2] = ((func*)hCTX.g_IPanel[3])();
 		panel_size[3] = ((func*)hCTX.g_IPanel[4])();
 	}
+	else {
+		panel_size[2] = 1920;
+		panel_size[2] = 1080;
+	}
 
 	gfx_lib = gfx_lib && fps_test_frames != 1 && hCTX.gfx_InitNonGAPlane && hCTX.MsOS_PA2KSEG0 && hCTX.MApi_MMAP_GetInfo && hCTX.gfx_CaptureFrame && hCTX.MApi_GOP_DWIN_CaptureOneFrame && hCTX.MApi_GOP_DWIN_GetWinProperty;
 
@@ -1041,10 +1052,10 @@ void* sambiligth_thread(void* params) {
 
 	log("Sambilight ended\n");
 
-	lib_deinit(h);
 	dlclose(h);
 
 	if (fps_test_frames != 1) {
+		lib_deinit(h);
 		pthread_exit(NULL);
 	}
 	return NULL;
