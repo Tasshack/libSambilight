@@ -105,12 +105,15 @@ void loop() {
 
 			if (bytesRemaining == 0) {
 				mode = Header;
+				while(Serial.available() > 0) {
+					Serial.read(); 
+				}
 				FastLED.show();
 			}
 			break;
 		}
 	}
-	else if ((t - lastByteTime) >= (uint32_t)120 * 1000) {
+	else if (((t - lastByteTime) >= (uint32_t)120 * 1000 && mode == Header) || ((t - lastByteTime) >= (uint32_t)1000 && mode == Data)) {
 		memset(leds, 0, NUM_LEDS * sizeof(struct CRGB));
 		FastLED.show();
 		mode = Header;

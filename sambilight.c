@@ -40,7 +40,7 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.2.0"
+#define LIB_VERSION "v1.2.1"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
@@ -567,23 +567,26 @@ static int open_serial(const char* device, unsigned int baudrate) {
 	}
 
 	if (fd >= 0) {
-		tcflush(fd, TCIFLUSH);
-
 		struct termios port_settings;
 		tcgetattr(fd, &port_settings);
 
-		if (strstr(dev, "ACM")) {
-			port_settings.c_cflag &= ~CRTSCTS;
-			port_settings.c_cflag |= CREAD | CLOCAL;
-			port_settings.c_cflag &= ~HUPCL;
-			port_settings.c_lflag &= ~ICANON;
-			port_settings.c_lflag &= ~ECHO;
-			port_settings.c_lflag &= ~ECHOE;
-			port_settings.c_lflag &= ~ECHONL;
-			port_settings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
-			port_settings.c_oflag &= ~OPOST;
-			port_settings.c_oflag &= ~ONLCR;
+		port_settings.c_cflag &= ~PARENB;
+		port_settings.c_cflag &= ~CSTOPB;
+		port_settings.c_cflag |= CS8;
+		port_settings.c_cflag &= ~CRTSCTS;
+		port_settings.c_cflag |= CREAD | CLOCAL;
+		port_settings.c_cflag &= ~HUPCL;
+		port_settings.c_lflag &= ~ICANON;
+		port_settings.c_lflag &= ~ECHO;
+		port_settings.c_lflag &= ~ECHOE;
+		port_settings.c_lflag &= ~ECHONL;
+		port_settings.c_lflag &= ~ISIG;
+		port_settings.c_iflag &= ~(IXON | IXOFF | IXANY);
+		port_settings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
+		port_settings.c_oflag &= ~OPOST;
+		port_settings.c_oflag &= ~ONLCR;
 
+		if (strstr(dev, "ACM")) {
 			log("Serial acm opened %s\n", dev);
 		}
 		else {
@@ -620,22 +623,7 @@ static int open_serial(const char* device, unsigned int baudrate) {
 				cfsetispeed(&port_settings, B921600);
 				cfsetospeed(&port_settings, B921600);
 			}
-
-			port_settings.c_cflag &= ~PARENB;
-			port_settings.c_cflag &= ~CSTOPB;
-			port_settings.c_cflag |= CS8;
-			port_settings.c_cflag &= ~CRTSCTS;
-			port_settings.c_cflag |= CREAD | CLOCAL;
-			port_settings.c_cflag &= ~HUPCL;
-			port_settings.c_lflag &= ~ICANON;
-			port_settings.c_lflag &= ~ECHO;
-			port_settings.c_lflag &= ~ECHOE;
-			port_settings.c_lflag &= ~ECHONL;
-			port_settings.c_lflag &= ~ISIG;
-			port_settings.c_iflag &= ~(IXON | IXOFF | IXANY);
-			port_settings.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
-			port_settings.c_oflag &= ~OPOST;
-			port_settings.c_oflag &= ~ONLCR;
+			
 			port_settings.c_cc[VTIME] = 1;
 			port_settings.c_cc[VMIN] = 0;
 
