@@ -810,7 +810,7 @@ void render_areas(const led_manager_led_t* leds, unsigned short leds_count, unsi
 
 void* sambiligth_thread(void* params) {
 	int capture_info[20] = { 0 }, panel_size[4] = { 0, 0, 1920, 1080 }, cd_size[2] = { 0, 0 }, win_property[20];
-	unsigned char* buffer, * data;
+	unsigned char* buffer, * data, init = 0;
 	unsigned long fps_counter = 0, counter = 0, c, data_size, leds_count, fps_test_remaining_frames = 0, bytesWritten, bytesRemaining;
 	unsigned short header_size = 6, h_border = 0, v_border = 0, h_new_border = 0, v_new_border = 0, scale = 2;
 	clock_t capture_begin, capture_end, fps_begin, fps_end, elapsed;
@@ -902,7 +902,7 @@ void* sambiligth_thread(void* params) {
 	log("Grabbing started\n");
 
 	capture_begin = clock();
-
+	
 	while (1) {
 		if (led_manager_get_state()) {
 			if (gfx_lib) {
@@ -916,12 +916,16 @@ void* sambiligth_thread(void* params) {
 				hCTX.MApi_GOP_DWIN_GetWinProperty(win_property);
 				if (win_property[4] != panel_size[2] / 2) {
 					hCTX.gfx_CaptureFrame(frame_buffer, 0, 2, 0, 0, panel_size[2], panel_size[3], 0, 1, 1, 0);
-					usleep(10000);
-					hCTX.gfx_ReleasePlane(frame_buffer, 0);
-					continue;
+					if (init) {
+						usleep(10000);
+						hCTX.gfx_ReleasePlane(frame_buffer, 0);
+						continue;
+					}
 				}
 
-				hCTX.MApi_GOP_DWIN_CaptureOneFrame();
+				if (init) {
+					hCTX.MApi_GOP_DWIN_CaptureOneFrame();
+				}
 
 				if (scale > 1) {
 					hCTX.gfx_InitNonGAPlane(out_buffer, led_config.image_width, led_config.image_height, 32, 0);
@@ -937,6 +941,8 @@ void* sambiligth_thread(void* params) {
 					hCTX.MApi_XC_W2BYTEMSK(4166, 0, 0x8000);
 					hCTX.MApi_XC_W2BYTEMSK(4310, 0, 0x2000);
 				}
+
+				init = 1;
 			}
 			else if (hCTX.SdDisplay_CaptureScreenF) {
 				hCTX.SdDisplay_CaptureScreenF(cd_size, buffer, capture_info, 0);
