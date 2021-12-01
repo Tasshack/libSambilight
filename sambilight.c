@@ -713,115 +713,117 @@ void save_capture(const unsigned char* frame, unsigned int width, unsigned int h
 }
 
 void render_areas(const led_manager_led_t* leds, unsigned short leds_count, unsigned short width, unsigned short height) {
-	int x, y, h, w, i;
-	char text[10] = "";
-	unsigned short text16[8] = {};
-	unsigned int color = 0;
-	unsigned char* colorPtr = (unsigned char*)&color;
+	if (hCTX.SCGC_Construct && hCTX.SCGC_Create && hCTX.SCBaseGC_Clear && hCTX.SCGC_SetFont && hCTX.SCGC_SetFontSize && hCTX.SCGC_SetFontStyle && hCTX.SCGC_FillRect) {
+		int x, y, h, w, i;
+		char text[10] = "";
+		unsigned short text16[8] = {};
+		unsigned int color = 0;
+		unsigned char* colorPtr = (unsigned char*)&color;
 
-	void* scgc = hCTX.operator_new(0x170);
-	hCTX.SCGC_Construct(scgc, 0);
-	hCTX.SCGC_Create(scgc);
-	hCTX.SCBaseGC_Clear(scgc, 0);
-	hCTX.SCGC_SetFont(scgc, hCTX.CUSBAppResUtil_GetDefaultFont());
-
-	// TODO: 10pt font will not work on H
-	if (hCTX.SdDisplay_CaptureScreenH == NULL) {
-		hCTX.SCGC_SetFontSize(scgc, 10);
-		hCTX.SCGC_SetFontStyle(scgc, 0);
-	}
-
-	colorPtr[3] = 190;
-
-	for (i = leds_count - 1; i >= 0; i--) {
-		memset(text, 0, sizeof(text));
-		sprintf(text, "%03u", i);
-
-		switch (i % 13) {
-		case 1:
-			colorPtr[2] = 255;
-			colorPtr[1] = 0;
-			colorPtr[0] = 0;
-			break;
-		case 2:
-			colorPtr[2] = 0;
-			colorPtr[1] = 255;
-			colorPtr[0] = 0;
-			break;
-		case 3:
-			colorPtr[2] = 0;
-			colorPtr[1] = 0;
-			colorPtr[0] = 255;
-			break;
-		case 4:
-			colorPtr[2] = 255;
-			colorPtr[1] = 0;
-			colorPtr[0] = 255;
-			break;
-		case 5:
-			colorPtr[2] = 0;
-			colorPtr[1] = 255;
-			colorPtr[0] = 255;
-			break;
-		case 6:
-			colorPtr[2] = 255;
-			colorPtr[1] = 255;
-			colorPtr[0] = 0;
-			break;
-		case 7:
-			colorPtr[2] = 128;
-			colorPtr[1] = 0;
-			colorPtr[0] = 255;
-			break;
-		case 8:
-			colorPtr[2] = 0;
-			colorPtr[1] = 128;
-			colorPtr[0] = 255;
-			break;
-		case 9:
-			colorPtr[2] = 128;
-			colorPtr[1] = 255;
-			colorPtr[0] = 0;
-			break;
-		case 10:
-			colorPtr[2] = 255;
-			colorPtr[1] = 0;
-			colorPtr[0] = 128;
-			break;
-		case 11:
-			colorPtr[2] = 0;
-			colorPtr[1] = 255;
-			colorPtr[0] = 128;
-			break;
-		case 12:
-			colorPtr[2] = 255;
-			colorPtr[1] = 128;
-			colorPtr[0] = 0;
-			break;
-		default:
-			colorPtr[2] = 255;
-			colorPtr[1] = 255;
-			colorPtr[0] = 255;
-			break;
-		}
-
-		x = floor((width * leds[i].x1) / (float)led_config.image_width / 1.5);
-		y = floor((height * leds[i].y1) / (float)led_config.image_height / 1.5);
-		w = ceil((width * (leds[i].x2 - leds[i].x1)) / (float)led_config.image_width / 1.5);
-		h = ceil((height * (leds[i].y2 - leds[i].y1)) / (float)led_config.image_height / 1.5);
-
-		hCTX.SCGC_FillRect(scgc, color, x, y, w, h);
-		hCTX.SCGC_SetFgColor(scgc, 0xFF000000);
-		hCTX.PCWString_Convert2(text16, text, 3, 1, 0);
+		void* scgc = hCTX.operator_new(0x170);
+		hCTX.SCGC_Construct(scgc, 0);
+		hCTX.SCGC_Create(scgc);
+		hCTX.SCBaseGC_Clear(scgc, 0);
+		hCTX.SCGC_SetFont(scgc, hCTX.CUSBAppResUtil_GetDefaultFont());
 
 		// TODO: 10pt font will not work on H
 		if (hCTX.SdDisplay_CaptureScreenH == NULL) {
-			hCTX.SCGC_DrawText(scgc, x + (w / 2) - 8, y + (h / 2) + 5, text16, 3);
+			hCTX.SCGC_SetFontSize(scgc, 10);
+			hCTX.SCGC_SetFontStyle(scgc, 0);
 		}
+
+		colorPtr[3] = 190;
+
+		for (i = leds_count - 1; i >= 0; i--) {
+			memset(text, 0, sizeof(text));
+			sprintf(text, "%03u", i);
+
+			switch (i % 13) {
+			case 1:
+				colorPtr[2] = 255;
+				colorPtr[1] = 0;
+				colorPtr[0] = 0;
+				break;
+			case 2:
+				colorPtr[2] = 0;
+				colorPtr[1] = 255;
+				colorPtr[0] = 0;
+				break;
+			case 3:
+				colorPtr[2] = 0;
+				colorPtr[1] = 0;
+				colorPtr[0] = 255;
+				break;
+			case 4:
+				colorPtr[2] = 255;
+				colorPtr[1] = 0;
+				colorPtr[0] = 255;
+				break;
+			case 5:
+				colorPtr[2] = 0;
+				colorPtr[1] = 255;
+				colorPtr[0] = 255;
+				break;
+			case 6:
+				colorPtr[2] = 255;
+				colorPtr[1] = 255;
+				colorPtr[0] = 0;
+				break;
+			case 7:
+				colorPtr[2] = 128;
+				colorPtr[1] = 0;
+				colorPtr[0] = 255;
+				break;
+			case 8:
+				colorPtr[2] = 0;
+				colorPtr[1] = 128;
+				colorPtr[0] = 255;
+				break;
+			case 9:
+				colorPtr[2] = 128;
+				colorPtr[1] = 255;
+				colorPtr[0] = 0;
+				break;
+			case 10:
+				colorPtr[2] = 255;
+				colorPtr[1] = 0;
+				colorPtr[0] = 128;
+				break;
+			case 11:
+				colorPtr[2] = 0;
+				colorPtr[1] = 255;
+				colorPtr[0] = 128;
+				break;
+			case 12:
+				colorPtr[2] = 255;
+				colorPtr[1] = 128;
+				colorPtr[0] = 0;
+				break;
+			default:
+				colorPtr[2] = 255;
+				colorPtr[1] = 255;
+				colorPtr[0] = 255;
+				break;
+			}
+
+			x = floor((width * leds[i].x1) / (float)led_config.image_width / 1.5);
+			y = floor((height * leds[i].y1) / (float)led_config.image_height / 1.5);
+			w = ceil((width * (leds[i].x2 - leds[i].x1)) / (float)led_config.image_width / 1.5);
+			h = ceil((height * (leds[i].y2 - leds[i].y1)) / (float)led_config.image_height / 1.5);
+
+			hCTX.SCGC_FillRect(scgc, color, x, y, w, h);
+			hCTX.SCGC_SetFgColor(scgc, 0xFF000000);
+			hCTX.PCWString_Convert2(text16, text, 3, 1, 0);
+
+			// TODO: 10pt font will not work on H
+			if (hCTX.SdDisplay_CaptureScreenH == NULL) {
+				hCTX.SCGC_DrawText(scgc, x + (w / 2) - 7, y + (h / 2) + 5, text16, 3);
+			}
+		}
+		hCTX.SCBaseGC_Flush(scgc, 0);
+		hCTX.SCGC_Destroy(scgc);
+		hCTX.SCGC_Destruct(scgc);
 	}
-	hCTX.SCBaseGC_Flush(scgc, 0);
-	hCTX.SCGC_Destroy(scgc);
-	hCTX.SCGC_Destruct(scgc);
 }
 
 void* sambiligth_thread(void* params) {
