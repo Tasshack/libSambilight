@@ -40,7 +40,7 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.2.1"
+#define LIB_VERSION "v1.2.9"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
@@ -587,7 +587,7 @@ static int open_serial(const char* device, unsigned int baudrate) {
 		port_settings.c_oflag &= ~ONLCR;
 
 		if (strstr(dev, "ACM")) {
-			log("Serial acm opened %s\n", dev);
+			log("Serial acm available %s\n", dev);
 		}
 		else {
 			switch (baudrate) {
@@ -623,11 +623,11 @@ static int open_serial(const char* device, unsigned int baudrate) {
 				cfsetispeed(&port_settings, B921600);
 				cfsetospeed(&port_settings, B921600);
 			}
-			
+
 			port_settings.c_cc[VTIME] = 1;
 			port_settings.c_cc[VMIN] = 0;
 
-			log("Serial opened %s @%u\n", dev, baudrate);
+			log("Serial available %s @%u\n", dev, baudrate);
 		}
 
 		tcsetattr(fd, TCSANOW, &port_settings);
@@ -650,15 +650,15 @@ void save_capture(const unsigned char* frame, unsigned int width, unsigned int h
 		switch (color_order[i]) {
 		case 'b':
 		case 'B':
-			b = 2 - i;
+			b = i;
 			break;
 		case 'g':
 		case 'G':
-			g = 2 - i;
+			g = i;
 			break;
 		case 'r':
 		case 'R':
-			r = 2 - i;
+			r = i;
 			break;
 		default:;
 		}
@@ -678,17 +678,25 @@ void save_capture(const unsigned char* frame, unsigned int width, unsigned int h
 	memset(buffer, 0, bufSize);
 	memcpy(buffer, bmpHeader, sizeof(bmpHeader));
 
+	if (capture_pos == 0) {
+		r -= 4;
+		g -= 4;
+		b -= 4;
+	}
+
 	for (i = 0; i < heigth; i++) {
 		for (j = 0; j < width * 4; j += 4) {
 			out = i * width * 4 + j + sizeof(bmpHeader);
+			if (capture_pos == 1) {
+				in = ((heigth - 1) * width * 4) - (i * (width * 4)) + (j);
+			}
+			else {
+				in = (i * width * 4) + (width * 4) - j;
+			}
 
-			in = i * width * 4 + width * 4 - j;
-			if (capture_pos == 1)
-				in = ((heigth - 1) * width * 4) - in;
-
-			buffer[out + r] = frame[in - 2];
-			buffer[out + g] = frame[in - 3];
-			buffer[out + b] = frame[in - 4];
+			buffer[out + 2] = frame[in + b];
+			buffer[out + 1] = frame[in + g];
+			buffer[out + 0] = frame[in + r];
 		}
 	}
 
@@ -697,6 +705,8 @@ void save_capture(const unsigned char* frame, unsigned int width, unsigned int h
 		fseek(file, 0, SEEK_SET);
 		fwrite(buffer, 1, bufSize, file);
 		fclose(file);
+
+		log("Capture saved to /dtv/Sambilight.bmp\n");
 	}
 
 	free(buffer);
@@ -714,8 +724,12 @@ void render_areas(const led_manager_led_t* leds, unsigned short leds_count, unsi
 	hCTX.SCGC_Create(scgc);
 	hCTX.SCBaseGC_Clear(scgc, 0);
 	hCTX.SCGC_SetFont(scgc, hCTX.CUSBAppResUtil_GetDefaultFont());
-	hCTX.SCGC_SetFontSize(scgc, 10);
-	hCTX.SCGC_SetFontStyle(scgc, 0);
+
+	// TODO: 10pt font will not work on H
+	if (hCTX.SdDisplay_CaptureScreenH == NULL) {
+		hCTX.SCGC_SetFontSize(scgc, 10);
+		hCTX.SCGC_SetFontStyle(scgc, 0);
+	}
 
 	colorPtr[3] = 190;
 
@@ -791,7 +805,6 @@ void render_areas(const led_manager_led_t* leds, unsigned short leds_count, unsi
 			break;
 		}
 
-
 		x = floor((width * leds[i].x1) / (float)led_config.image_width / 1.5);
 		y = floor((height * leds[i].y1) / (float)led_config.image_height / 1.5);
 		w = ceil((width * (leds[i].x2 - leds[i].x1)) / (float)led_config.image_width / 1.5);
@@ -800,9 +813,12 @@ void render_areas(const led_manager_led_t* leds, unsigned short leds_count, unsi
 		hCTX.SCGC_FillRect(scgc, color, x, y, w, h);
 		hCTX.SCGC_SetFgColor(scgc, 0xFF000000);
 		hCTX.PCWString_Convert2(text16, text, 3, 1, 0);
-		hCTX.SCGC_DrawText(scgc, x + (w / 2) - 8, y + (h / 2) + 5, text16, 3);
-	}
 
+		// TODO: 10pt font will not work on H
+		if (hCTX.SdDisplay_CaptureScreenH == NULL) {
+			hCTX.SCGC_DrawText(scgc, x + (w / 2) - 8, y + (h / 2) + 5, text16, 3);
+		}
+	}
 	hCTX.SCBaseGC_Flush(scgc, 0);
 	hCTX.SCGC_Destroy(scgc);
 	hCTX.SCGC_Destruct(scgc);
@@ -814,8 +830,8 @@ void* sambiligth_thread(void* params) {
 	unsigned long fps_counter = 0, counter = 0, c, data_size, leds_count, fps_test_remaining_frames = 0, bytesWritten, bytesRemaining;
 	unsigned short header_size = 6, h_border = 0, v_border = 0, h_new_border = 0, v_new_border = 0, scale = 2;
 	clock_t capture_begin, capture_end, fps_begin, fps_end, elapsed;
-	void* frame_buffer, * out_buffer;
-	int* out_buffer_info, * frame_buffer_info;
+	void* frame_buffer = NULL, * out_buffer = NULL;
+	int* out_buffer_info = NULL, * frame_buffer_info = NULL;
 	typedef int func(void);
 
 	if (fps_test_frames != 1) {
@@ -823,6 +839,7 @@ void* sambiligth_thread(void* params) {
 	}
 
 	leds_count = led_manager_init(&led_config, &led_profiles[default_profile]);
+	log("Led manager init\n");
 
 	data_size = (leds_count * 3) + header_size;
 	if (external_led_enabled) {
@@ -839,9 +856,6 @@ void* sambiligth_thread(void* params) {
 	if (external_led_enabled) {
 		data[data_size - 1] = external_led_state;
 	}
-	//if (tv_remote_enabled) {
-	//	show_msg_box("Ambient Lighting On");
-	//}
 	capture_frequency *= 1000;
 
 	cd_size[0] = led_config.image_width;
@@ -850,21 +864,16 @@ void* sambiligth_thread(void* params) {
 	if (hCTX.g_IPanel) {
 		panel_size[2] = ((func*)hCTX.g_IPanel[3])();
 		panel_size[3] = ((func*)hCTX.g_IPanel[4])();
-	}
-	else {
-		panel_size[2] = 1920;
-		panel_size[2] = 1080;
+		log("Panel size %dx%d\n", panel_size[2], panel_size[3]);
 	}
 
-	gfx_lib = gfx_lib && fps_test_frames != 1 && hCTX.gfx_InitNonGAPlane && hCTX.MsOS_PA2KSEG0 && hCTX.MApi_MMAP_GetInfo && hCTX.gfx_CaptureFrame && hCTX.MApi_GOP_DWIN_CaptureOneFrame && hCTX.MApi_GOP_DWIN_GetWinProperty;
-
-	// TODO: gfx_lib will be ported to H
-	if (gfx_lib && hCTX.SdDisplay_CaptureScreenH) {
-		gfx_lib = 0;
-	}
+	gfx_lib = gfx_lib && fps_test_frames != 1 && hCTX.SdDisplay_CaptureScreenH == NULL && hCTX.gfx_InitNonGAPlane && hCTX.MsOS_PA2KSEG0 && hCTX.MApi_MMAP_GetInfo && hCTX.gfx_CaptureFrame && hCTX.MApi_GOP_DWIN_CaptureOneFrame && hCTX.MApi_GOP_DWIN_GetWinProperty;
 
 	if (gfx_lib) {
 		log("gfx_lib enabled\n");
+	}
+	else {
+		log("gfx_lib not enabled\n");
 	}
 
 	scale = panel_size[2] / led_config.image_width;
@@ -881,10 +890,12 @@ void* sambiligth_thread(void* params) {
 	}
 	else {
 		buffer = malloc(4 * led_config.image_width * led_config.image_height);
+		memset(buffer, 0, 4 * led_config.image_width * led_config.image_height);
 	}
 
 	if (fps_test_frames > 0) {
 		if (fps_test_frames == 1) {
+			log("Test Started\n");
 			led_manager_set_intensity(100, 1);
 		}
 		else {
@@ -895,6 +906,7 @@ void* sambiligth_thread(void* params) {
 	}
 
 	if (test_pattern) {
+		log("Render test pattern\n");
 		render_areas(led_manager_get_leds(), leds_count, panel_size[2], panel_size[3]);
 	}
 
@@ -902,7 +914,7 @@ void* sambiligth_thread(void* params) {
 	log("Grabbing started\n");
 
 	capture_begin = clock();
-	
+
 	while (1) {
 		if (led_manager_get_state()) {
 			if (gfx_lib) {
@@ -926,6 +938,9 @@ void* sambiligth_thread(void* params) {
 				if (init) {
 					hCTX.MApi_GOP_DWIN_CaptureOneFrame();
 				}
+				else {
+					init = 1;
+				}
 
 				if (scale > 1) {
 					hCTX.gfx_InitNonGAPlane(out_buffer, led_config.image_width, led_config.image_height, 32, 0);
@@ -941,8 +956,6 @@ void* sambiligth_thread(void* params) {
 					hCTX.MApi_XC_W2BYTEMSK(4166, 0, 0x8000);
 					hCTX.MApi_XC_W2BYTEMSK(4310, 0, 0x2000);
 				}
-
-				init = 1;
 			}
 			else if (hCTX.SdDisplay_CaptureScreenF) {
 				hCTX.SdDisplay_CaptureScreenF(cd_size, buffer, capture_info, 0);
@@ -1064,25 +1077,13 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		return;
 	}
 
-	int argc;
+	int argc, exit = 0;
 	char* argv[512], * optstr, path[PATH_MAX];
 	char device[50] = "";
 	unsigned long baudrate = 921600;
 	pthread_t thread;
+	pthread_t ipcthread;
 	size_t len;
-
-	unlink(LOG_FILE);
-	log("SamyGO "LIB_TV_MODELS" lib"LIB_NAME" "LIB_VERSION" - (c) tasshack 2019 - 2021\n");
-	h = dlopen(0, RTLD_LAZY);
-	if (!h) {
-		char* serr = dlerror();
-		log("%s", serr);
-		return;
-	}
-
-	patch_adbg_CheckSystem(h);
-
-	samyGO_whacky_t_init(h, &hCTX, ARRAYSIZE(hCTX.procs));
 
 	argc = getArgCArgV(libpath, argv);
 
@@ -1103,7 +1104,7 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		led_config.start_offset = atol(optstr);
 
 	optstr = getOptArg(argv, argc, "CLOCKWISE:");
-	if (optstr)
+	if (optstr && strlen(optstr))
 		led_config.led_order = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "COLOR_ORDER:");
@@ -1123,15 +1124,15 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		capture_frequency = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "TV_REMOTE:");
-	if (optstr)
+	if (optstr && strlen(optstr))
 		tv_remote_enabled = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "EXTERNAL:");
-	if (optstr)
+	if (optstr && strlen(optstr))
 		external_led_enabled = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "CAPTURE_SIZE:");
-	if (optstr) {
+	if (optstr && strlen(optstr)) {
 		switch (atoi(optstr)) {
 		case 1:
 			led_config.image_width = 96;
@@ -1166,8 +1167,8 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	}
 
 	optstr = getOptArg(argv, argc, "OSD_CAPTURE:");
-	if (optstr)
-		osd_enabled = atol(optstr);
+	if (optstr && strlen(optstr))
+		osd_enabled = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "GFX_LIB:");
 	if (optstr && strlen(optstr))
@@ -1182,24 +1183,38 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		baudrate = atol(optstr);
 
 	optstr = getOptArg(argv, argc, "TEST_FRAMES:");
-	if (optstr)
+	if (optstr && strlen(optstr))
 		fps_test_frames = atol(optstr);
 
 	optstr = getOptArg(argv, argc, "TEST_PATTERN:");
-	if (optstr)
-		test_pattern = atol(optstr);
+	if (optstr && strlen(optstr))
+		test_pattern = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "TEST_PROFILE:");
-	if (optstr)
-		default_profile = atol(optstr);
+	if (optstr && strlen(optstr))
+		default_profile = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "TEST_SAVE_CAPTURE:");
-	if (optstr)
-		test_capture = atol(optstr);
+	if (optstr && strlen(optstr))
+		test_capture = atoi(optstr);
+
 
 	if (fps_test_frames == 1) {
 		tv_remote_enabled = 0;
 	}
+
+	unlink(LOG_FILE);
+	log("SamyGO "LIB_TV_MODELS" lib"LIB_NAME" "LIB_VERSION" - (c) tasshack 2019 - 2021\n");
+
+	h = dlopen(0, RTLD_LAZY);
+	if (!h) {
+		char* serr = dlerror();
+		log("%s", serr);
+		return;
+	}
+
+	patch_adbg_CheckSystem(h);
+	samyGO_whacky_t_init(h, &hCTX, ARRAYSIZE(hCTX.procs));
 
 	if (tv_remote_enabled) {
 		if (dyn_sym_tab_init(h, dyn_hook_fn_tab, ARRAYSIZE(dyn_hook_fn_tab)) >= 0) {
@@ -1207,7 +1222,7 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 			_hooked = 1;
 		}
 	}
-
+	
 	log("Sambilight started\n");
 
 	log("H_LEDS: %d, V_LEDS: %d, BOTTOM_GAP: %d, START_OFFSET: %d, COLOR_ORDER: %s, CAPTURE_POS: %d, CLOCKWISE: %d\n", led_config.h_leds_count, led_config.v_leds_count, led_config.bottom_gap, led_config.start_offset, led_config.color_order, led_config.capture_pos, led_config.led_order);
@@ -1236,6 +1251,7 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 
 	serial = open_serial(device, baudrate);
 	if (serial >= 0) {
+		log("Serial open\n");
 		if (fps_test_frames == 1) {
 			sambiligth_thread(NULL);
 			return;
