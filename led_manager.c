@@ -78,7 +78,7 @@ unsigned char led_manager_correction(unsigned char color, short brightness_corre
 	return color;
 }
 
-void led_manager_get_pixel(const unsigned char* buffer, unsigned char* red, unsigned char* green, unsigned char* blue, long x, long y)
+void led_manager_get_pixel(const unsigned char* buffer, unsigned char* red, unsigned char* green, unsigned char* blue, long x, long y, unsigned char correction)
 {
 	if (x >= 0 && x < led_manager.config.image_width && y >= 0 && y < led_manager.config.image_height) {
 		unsigned long address;
@@ -89,9 +89,16 @@ void led_manager_get_pixel(const unsigned char* buffer, unsigned char* red, unsi
 			address = ((led_manager.config.image_height - 1 - y) * (led_manager.config.image_width * 4)) + ((led_manager.config.image_width - 1 - x) * 4);
 		}
 
-		* red = led_manager_correction(buffer[address + led_manager._rPos], led_manager.brightness_correction);
-		*green = led_manager_correction(buffer[address + led_manager._gPos], led_manager.brightness_correction);
-		*blue = led_manager_correction(buffer[address + led_manager._bPos], led_manager.brightness_correction);
+		if (correction) {
+			*red = led_manager_correction(buffer[address + led_manager._rPos], led_manager.brightness_correction);
+			*green = led_manager_correction(buffer[address + led_manager._gPos], led_manager.brightness_correction);
+			*blue = led_manager_correction(buffer[address + led_manager._bPos], led_manager.brightness_correction);
+		}
+		else {
+			*red = buffer[address + led_manager._rPos];
+			*green = buffer[address + led_manager._gPos];
+			*blue = buffer[address + led_manager._bPos];
+		}
 	}
 	else {
 		*red = 0;
@@ -102,33 +109,33 @@ void led_manager_get_pixel(const unsigned char* buffer, unsigned char* red, unsi
 
 unsigned char led_manager_check_black(const unsigned char* buffer, long x, long y, unsigned char threshold)
 {
-	led_manager_get_pixel(buffer, &led_manager._px_r, &led_manager._px_g, &led_manager._px_b, x, y);
-	if (led_manager._px_r < threshold && led_manager._px_g < threshold && led_manager._px_b < threshold) {
+	led_manager_get_pixel(buffer, &led_manager._px_r, &led_manager._px_g, &led_manager._px_b, x, y, 0);
+	if (led_manager._px_r <= threshold && led_manager._px_g <= threshold && led_manager._px_b <= threshold) {
 		return 1;
 	}
 	return 0;
 }
 
 unsigned char led_manager_get_borders(const unsigned char* buffer, unsigned short* h_border, unsigned short* v_border) {
-	*h_border = -1;
-	*v_border = -1;
+	short new_h_border = -1;
+	short new_v_border = -1;
 
 	for (led_manager._i = 0; led_manager._i < led_manager._width_33; ++led_manager._i)
 	{
-		if (!led_manager_check_black(buffer, led_manager._i, led_manager._height_50, 3) ||
-			!led_manager_check_black(buffer, led_manager._i, led_manager._height_33, 3) ||
-			!led_manager_check_black(buffer, led_manager._i, led_manager._height_66, 3)) {
-			*v_border = ((100 * led_manager._i) / led_manager.config.image_width);
+		if (!led_manager_check_black(buffer, led_manager._i, led_manager._height_50, 10) ||
+			!led_manager_check_black(buffer, led_manager._i, led_manager._height_33, 10) ||
+			!led_manager_check_black(buffer, led_manager._i, led_manager._height_66, 10)) {
+			new_v_border = ((100 * led_manager._i) / led_manager.config.image_width);
 			break;
 		}
 	}
 
 	for (led_manager._i = 0; led_manager._i < led_manager._height_33; ++led_manager._i)
 	{
-		if (!led_manager_check_black(buffer, led_manager._width_50, led_manager._i, 3) ||
-			!led_manager_check_black(buffer, led_manager._width_33, led_manager._i, 3) ||
-			!led_manager_check_black(buffer, led_manager._width_66, led_manager._i, 3)) {
-			*h_border = ((100 * led_manager._i) / led_manager.config.image_height);
+		if (!led_manager_check_black(buffer, led_manager._width_50, led_manager._i, 10) ||
+			!led_manager_check_black(buffer, led_manager._width_33, led_manager._i, 10) ||
+			!led_manager_check_black(buffer, led_manager._width_66, led_manager._i, 10)) {
+			new_h_border = ((100 * led_manager._i) / led_manager.config.image_height);
 			break;
 		}
 	}
@@ -136,9 +143,11 @@ unsigned char led_manager_get_borders(const unsigned char* buffer, unsigned shor
 	//led_manager.new_profile.v_padding_percent = ((100 * non_black_x) / led_manager.config.image_width);
 	//led_manager.new_profile.h_padding_percent = ((100 * non_black_y) / led_manager.config.image_height);
 
-	if (*h_border == -1 || *v_border == -1) {
+	if (new_h_border == -1 || new_v_border == -1) {
 		return 0;
 	}
+	*h_border = new_h_border;
+	*v_border = new_v_border;
 	return 1;
 }
 
@@ -424,7 +433,7 @@ int led_manager_argb8888_to_leds(const unsigned char* buffer, unsigned char* dat
 			for (led_manager._x = led_manager.leds[led_manager._i].x1; led_manager._x < led_manager.leds[led_manager._i].x2; led_manager._x++) {
 				for (led_manager._y = led_manager.leds[led_manager._i].y1; led_manager._y < led_manager.leds[led_manager._i].y2; led_manager._y++) {
 					if (led_manager._x >= 0 && led_manager._x < led_manager.config.image_width && led_manager._y >= 0 && led_manager._y < led_manager.config.image_height) {
-						led_manager_get_pixel(buffer, &led_manager._px_r, &led_manager._px_g, &led_manager._px_b, led_manager._x, led_manager._y);
+						led_manager_get_pixel(buffer, &led_manager._px_r, &led_manager._px_g, &led_manager._px_b, led_manager._x, led_manager._y, 0);
 
 						led_manager._total_r += led_manager._px_r;
 						led_manager._total_g += led_manager._px_g;

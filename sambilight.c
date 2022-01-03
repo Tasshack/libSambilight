@@ -55,7 +55,7 @@
 unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 0, tv_remote_enabled = 1, gfx_lib = 1, test_pattern = 0, default_profile = 0, test_capture = 0;
 unsigned long fps_test_frames = 0, capture_frequency = 30;
 int serial = -1;
-void* h;
+void* hl;
 led_manager_config_t led_config = { 35, 19, 7, 68, 480, 270, "RGB", 0, 1 };
 
 STATIC int show_msg_box(const char* text);
@@ -65,23 +65,23 @@ STATIC int show_msg_box(const char* text);
 typedef union {
 	const void* procs[48];
 	struct {
-		const int(*SdDisplay_CaptureScreenE)(int*, unsigned char*, int*);
-		const int(*SdDisplay_CaptureScreenF)(int*, unsigned char*, int*, int);
-		const int(*SdDisplay_CaptureScreenH)(int*, unsigned char*, int*, int*, int);
+		int(*SdDisplay_CaptureScreenE)(int*, unsigned char*, int*);
+		int(*SdDisplay_CaptureScreenF)(int*, unsigned char*, int*, int);
+		int(*SdDisplay_CaptureScreenH)(int*, unsigned char*, int*, int*, int);
 
 		void* (*operator_new)(unsigned int);
-		const int (*SCGC_Construct)(void* this, int);
-		const int (*SCGC_Create)(void* this);
-		const int (*SCGC_Destroy)(void* this);
-		const int (*SCGC_Destruct)(void* this);
-		const int (*SCBaseGC_Clear)(void* this, int);
-		const int (*SCBaseGC_Flush)(void* this, int);
-		const int (*SCGC_FillRect)(void*, unsigned int, int, int, int, int);
-		const int (*SCGC_DrawText)(void* this, int x, int y, unsigned short* text, int one);
-		const int (*SCGC_SetFontSize)(void* this, unsigned int size);
-		const int (*SCGC_SetFont)(void* this, void* scfont);
-		const int (*SCGC_SetFontStyle)(void* this, unsigned int style);
-		const int (*SCGC_SetFgColor)(void* this, unsigned int color);
+		int (*SCGC_Construct)(void* this, int);
+		int (*SCGC_Create)(void* this);
+		int (*SCGC_Destroy)(void* this);
+		int (*SCGC_Destruct)(void* this);
+		int (*SCBaseGC_Clear)(void* this, int);
+		int (*SCBaseGC_Flush)(void* this, int);
+		int (*SCGC_FillRect)(void*, unsigned int, int, int, int, int);
+		int (*SCGC_DrawText)(void* this, int x, int y, unsigned short* text, int one);
+		int (*SCGC_SetFontSize)(void* this, unsigned int size);
+		int (*SCGC_SetFont)(void* this, void* scfont);
+		int (*SCGC_SetFontStyle)(void* this, unsigned int style);
+		int (*SCGC_SetFgColor)(void* this, unsigned int color);
 		void* (*CUSBAppResUtil_GetDefaultFont)(void);
 
 		int* g_IPanel;
@@ -99,29 +99,30 @@ typedef union {
 		void* (*CViewerApp_GetViewerManager)(void* this);
 		void* (*ALMOND0300_CDesktopManager_GetInstance)(int);
 		void* (*ALMOND0300_CDesktopManager_GetApplication)(void* this, char*, int);
-		const int(*CViewerManager_ShowSystemAlert)(void* this, int, int);
-		const int(*CViewerManager_ShowSystemAlertB)(void* this, int);
-		const int(*CViewerManager_ShowCustomText)(void* this, int);
-		const int(*CViewerManager_ShowCustomTextF)(void* this, int, int);
-		const int(*CViewerManager_ShowRCMode)(void* this, int);
-		const int(*CCustomTextApp_t_OnActivated)(void* this, char*, int);
+		int(*CViewerManager_ShowSystemAlert)(void* this, int, int);
+		int(*CViewerManager_ShowSystemAlertB)(void* this, int);
+		int(*CViewerManager_ShowCustomText)(void* this, int);
+		int(*CViewerManager_ShowCustomTextF)(void* this, int, int);
+		int(*CViewerManager_ShowRCMode)(void* this, int);
+		int(*CCustomTextApp_t_OnActivated)(void* this, char*, int);
 
 		void* (*MsOS_PA2KSEG0)(int);
-		const int (*MsOS_Dcache_Flush)(void*, int);
+		int (*MsOS_Dcache_Flush)(void*, int);
 		void* (*MApi_MMAP_GetInfo)(int, int);
 		void (*MApi_XC_W2BYTEMSK)(int, int, int);
-		const int (*gfx_InitNonGAPlane)(void*, unsigned int, unsigned int, int, int);
-		const int (*gfx_ReleasePlane)(void*, int);
-		const int (*gfx_CaptureFrame)(void*, int, int, unsigned int, unsigned int, unsigned int, unsigned int, int, int, int, int);
-		const int (*gfx_BitBltScale)(void*, unsigned int, unsigned int, unsigned int, unsigned int, void*, int, int, unsigned int, unsigned int);
-		const int (*MApi_GOP_DWIN_CaptureOneFrame)();
-		const int (*MApi_GOP_DWIN_GetWinProperty)(void*);
+		int (*gfx_InitNonGAPlane)(void*, unsigned int, unsigned int, int, int);
+		int (*gfx_ReleasePlane)(void*, int);
+		int (*gfx_CaptureFrame)(void*, int, int, unsigned int, unsigned int, unsigned int, unsigned int, int, int, int, int);
+		int (*gfx_BitBltScale)(void*, unsigned int, unsigned int, unsigned int, unsigned int, void*, int, int, unsigned int, unsigned int);
+		int (*MApi_GOP_DWIN_CaptureOneFrame)(void);
+		int (*MApi_GOP_DWIN_GetWinProperty)(void*);
 	};
 } samyGO_whacky_t;
 
 samyGO_whacky_t hCTX =
 {
 	// libScreenShot (libSDAL.so)
+	{
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP23SdDisplay_CaptureInfo_t",
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP23SdDisplay_CaptureInfo_t12SdMainChip_k",
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP24SdVideoCommonFrameData_tP8SdRect_t12SdMainChip_k",
@@ -176,6 +177,7 @@ samyGO_whacky_t hCTX =
 	(const void*)"gfx_BitBltScale",
 	(const void*)"MApi_GOP_DWIN_CaptureOneFrame",
 	(const void*)"MApi_GOP_DWIN_GetWinProperty"
+	}
 };
 
 _HOOK_IMPL(int, CViewerApp_t_OnInputOccur, void* this, int* a2)
@@ -254,7 +256,9 @@ _HOOK_IMPL(int, CViewerApp_t_OnInputOccur, void* this, int* a2)
 			show_msg_box(msg);
 			return 1;
 		}
-	default:;
+		break;
+	default:
+		break;
 	}
 
 	_HOOK_DISPATCH(CViewerApp_t_OnInputOccur, this, a2);
@@ -294,7 +298,8 @@ static int jsoneq(const char* json, jsmntok_t* tok, const char* s) {
 }
 
 void load_profiles_config(const char* path) {
-	int length, index = 0, s;
+	int length, s;
+	unsigned short index = 0;
 	char* ptr, * json_buffer, tmp[50];
 	jsmn_parser parser;
 	jsmntok_t tokens[128];
@@ -472,7 +477,7 @@ static int insmod(const char* module_name) {
 		image = malloc(image_size);
 		ret = read(fd, image, image_size);
 		ret = syscall(__NR_init_module, image, image_size, params);
-		usleep(100000);
+		usleep(1000000);
 		free(image);
 		close(fd);
 	}
@@ -485,7 +490,7 @@ static int mknod_acm(const char* device_name) {
 	FILE* fp;
 	char* ptr;
 	char master_str[10] = "", alias_str[10] = "";
-	uint16_t master, alias;
+	long master, alias;
 
 	if (access(device_name, F_OK) == 0) {
 		return 0;
@@ -638,7 +643,7 @@ static int open_serial(const char* device, unsigned int baudrate) {
 void save_capture(const unsigned char* frame, unsigned int width, unsigned int heigth, const char* color_order, unsigned int capture_pos) {
 	unsigned char bmpHeader[54] = { 0x42, 0x4d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x36, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 	unsigned char* buffer;
-	int i, j, r = 2, g = 1, b = 0;
+	unsigned int i, j, r = 2, g = 1, b = 0;
 	unsigned int bufSize, in, out;
 	FILE* file;
 
@@ -716,7 +721,7 @@ void render_areas(const led_manager_led_t* leds, unsigned short leds_count, unsi
 	if (hCTX.SCGC_Construct && hCTX.SCGC_Create && hCTX.SCBaseGC_Clear && hCTX.SCGC_SetFont && hCTX.SCGC_SetFontSize && hCTX.SCGC_SetFontStyle && hCTX.SCGC_FillRect) {
 		int x, y, h, w, i;
 		char text[10] = "";
-		unsigned short text16[8] = {};
+		unsigned short text16[8] = { 0 };
 		unsigned int color = 0;
 		unsigned char* colorPtr = (unsigned char*)&color;
 
@@ -931,7 +936,7 @@ void* sambiligth_thread(void* params) {
 				if (win_property[4] != panel_size[2] / 2) {
 					hCTX.gfx_CaptureFrame(frame_buffer, 0, 2, 0, 0, panel_size[2], panel_size[3], 0, 1, 1, 0);
 					if (init) {
-						usleep(10000);
+						usleep(capture_frequency * 2);
 						hCTX.gfx_ReleasePlane(frame_buffer, 0);
 						continue;
 					}
@@ -977,7 +982,7 @@ void* sambiligth_thread(void* params) {
 				bytesWritten = write(serial, data, data_size);
 
 				fps_counter++;
-				if (black_border_enabled && fps_counter >= 30) {
+				if (black_border_enabled && fps_counter >= 15) {
 					fps_counter = 0;
 					if (black_border_state) {
 						if (led_manager_get_borders(buffer, &h_new_border, &v_new_border)) {
@@ -986,16 +991,16 @@ void* sambiligth_thread(void* params) {
 								h_border = h_new_border;
 								v_border = v_new_border;
 							}
-							else if (counter == 5) {
+							else if (counter == 4) {
 								led_manager_profile_t profile;
 								profile.index = 1;
 								c = 0;
 								while (profile.index) {
 									profile = led_profiles[c];
-									if (abs(profile.h_padding_percent - h_border) <= 2 && abs(profile.v_padding_percent - v_border) <= 2) {
+									if (abs(profile.h_padding_percent - h_border) <= 3 && abs(profile.v_padding_percent - v_border) <= 3) {
 										if (led_manager_get_profile_index() != profile.index) {
 											led_manager_set_profile(&profile);
-											log("Switched to %s Mode\n", profile.name);
+											log("Switched to %s Mode: H: %%%d V: %%%d\n", profile.name, h_border, v_border);
 										}
 										break;
 									}
@@ -1044,6 +1049,7 @@ void* sambiligth_thread(void* params) {
 	}
 
 	if (gfx_lib) {
+		hCTX.gfx_ReleasePlane(frame_buffer, 0);
 		hCTX.MsOS_Dcache_Flush(frame_buffer, frame_buffer_info[1]);
 		if (scale > 1) {
 			hCTX.MsOS_Dcache_Flush(out_buffer, out_buffer_info[1]);
@@ -1061,10 +1067,10 @@ void* sambiligth_thread(void* params) {
 
 	log("Sambilight ended\n");
 
-	dlclose(h);
+	dlclose(hl);
 
 	if (fps_test_frames != 1) {
-		lib_deinit(h);
+		lib_deinit(hl);
 		pthread_exit(NULL);
 	}
 	return NULL;
@@ -1208,23 +1214,23 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	unlink(LOG_FILE);
 	log("SamyGO "LIB_TV_MODELS" lib"LIB_NAME" "LIB_VERSION" - (c) tasshack 2019 - 2021\n");
 
-	h = dlopen(0, RTLD_LAZY);
-	if (!h) {
+	hl = dlopen(0, RTLD_LAZY);
+	if (!hl) {
 		char* serr = dlerror();
 		log("%s", serr);
 		return;
 	}
 
-	patch_adbg_CheckSystem(h);
-	samyGO_whacky_t_init(h, &hCTX, ARRAYSIZE(hCTX.procs));
+	patch_adbg_CheckSystem(hl);
+	samyGO_whacky_t_init(hl, &hCTX, ARRAYSIZE(hCTX.procs));
 
 	if (tv_remote_enabled) {
-		if (dyn_sym_tab_init(h, dyn_hook_fn_tab, ARRAYSIZE(dyn_hook_fn_tab)) >= 0) {
+		if (dyn_sym_tab_init(hl, dyn_hook_fn_tab, ARRAYSIZE(dyn_hook_fn_tab)) >= 0) {
 			set_hooks(LIB_HOOKS, ARRAYSIZE(LIB_HOOKS));
 			_hooked = 1;
 		}
 	}
-	
+
 	log("Sambilight started\n");
 
 	log("H_LEDS: %d, V_LEDS: %d, BOTTOM_GAP: %d, START_OFFSET: %d, COLOR_ORDER: %s, CAPTURE_POS: %d, CLOCKWISE: %d\n", led_config.h_leds_count, led_config.v_leds_count, led_config.bottom_gap, led_config.start_offset, led_config.color_order, led_config.capture_pos, led_config.led_order);
@@ -1265,8 +1271,8 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 
 	log("Sambilight ended\n");
 
-	lib_deinit(h);
-	dlclose(h);
+	lib_deinit(hl);
+	dlclose(hl);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1277,9 +1283,7 @@ STATIC int show_msg_box(const char* text)
 	int newLength, strPos, i, seekLen = 13, strLen = 0;
 	unsigned short* tvString = NULL;
 
-	unsigned char stringUtf[512];
-	memset(stringUtf, 0, 512 * sizeof(char));
-
+	unsigned char stringUtf[512] = { 0 };
 	strncpy(stringUtf, text, 511);
 
 	unsigned short notAvail[] = { 0x004E, 0x006F, 0x0074, 0x0020, 0x0041, 0x0076, 0x0061, 0x0069, 0x006C, 0x0061, 0x0062, 0x006C, 0x0065, 0x0000,	// "Not available\0"
