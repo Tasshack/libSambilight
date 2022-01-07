@@ -1239,44 +1239,39 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	}
 
 	log("Sambilight started\n");
-	if (strstr(libpath, "-r") == NULL && fps_test_frames == 0) {
-		log("Library sould be injected with -r!\n");
+	log("H_LEDS: %d, V_LEDS: %d, BOTTOM_GAP: %d, START_OFFSET: %d, COLOR_ORDER: %s, CAPTURE_POS: %d, CLOCKWISE: %d\n", led_config.h_leds_count, led_config.v_leds_count, led_config.bottom_gap, led_config.start_offset, led_config.color_order, led_config.capture_pos, led_config.led_order);
+	log("%dx%d %dms\n", led_config.image_width, led_config.image_height, capture_frequency);
+
+	if (black_border_enabled) {
+		log("Black border detection enabled\n");
 	}
-	else {
-		log("H_LEDS: %d, V_LEDS: %d, BOTTOM_GAP: %d, START_OFFSET: %d, COLOR_ORDER: %s, CAPTURE_POS: %d, CLOCKWISE: %d\n", led_config.h_leds_count, led_config.v_leds_count, led_config.bottom_gap, led_config.start_offset, led_config.color_order, led_config.capture_pos, led_config.led_order);
-		log("%dx%d %dms\n", led_config.image_width, led_config.image_height, capture_frequency);
 
-		if (black_border_enabled) {
-			log("Black border detection enabled\n");
-		}
+	if (tv_remote_enabled) {
+		log("TV Remote control support enabed\n");
+	}
 
-		if (tv_remote_enabled) {
-			log("TV Remote control support enabed\n");
-		}
+	if (external_led_enabled) {
+		log("External led control enabed\n");
+	}
+	strncpy(path, libpath, PATH_MAX);
+	len = strlen(libpath) - 1;
+	while (path[len] && path[len] != '.') {
+		path[len] = 0;
+		len--;
+	}
+	strncat(path, "config", PATH_MAX);
+	load_profiles_config(path);
 
-		if (external_led_enabled) {
-			log("External led control enabed\n");
-		}
-		strncpy(path, libpath, PATH_MAX);
-		len = strlen(libpath) - 1;
-		while (path[len] && path[len] != '.') {
-			path[len] = 0;
-			len--;
-		}
-		strncat(path, "config", PATH_MAX);
-		load_profiles_config(path);
-
-		serial = open_serial(device, baudrate);
-		if (serial >= 0) {
-			log("Serial open\n");
-			if (fps_test_frames == 1) {
-				sambiligth_thread(NULL);
-				return;
-			}
-
-			pthread_create(&thread, NULL, &sambiligth_thread, NULL);
+	serial = open_serial(device, baudrate);
+	if (serial >= 0) {
+		log("Serial open\n");
+		if (fps_test_frames == 1) {
+			sambiligth_thread(NULL);
 			return;
 		}
+
+		pthread_create(&thread, NULL, &sambiligth_thread, NULL);
+		return;
 	}
 
 	log("Sambilight ended\n");
