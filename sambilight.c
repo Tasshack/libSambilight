@@ -40,7 +40,7 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.2.10"
+#define LIB_VERSION "v1.2.11"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
@@ -122,7 +122,7 @@ typedef union {
 samyGO_whacky_t hCTX =
 {
 	// libScreenShot (libSDAL.so)
-	{
+{
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP23SdDisplay_CaptureInfo_t",
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP23SdDisplay_CaptureInfo_t12SdMainChip_k",
 	(const void*)"_Z23SdDisplay_CaptureScreenP8SdSize_tPhP24SdVideoCommonFrameData_tP8SdRect_t12SdMainChip_k",
@@ -476,10 +476,10 @@ static int insmod(const char* module_name) {
 		image_size = st.st_size;
 		image = malloc(image_size);
 		ret = read(fd, image, image_size);
-		ret = syscall(__NR_init_module, image, image_size, params);
-		usleep(1000000);
-		free(image);
 		close(fd);
+		ret = syscall(__NR_init_module, image, image_size, params);
+		sleep(1);
+		free(image);
 	}
 	return ret;
 }
@@ -524,50 +524,57 @@ static int mknod_acm(const char* device_name) {
 }
 
 static int open_serial(const char* device, unsigned int baudrate) {
-	int fd = -1, i;
+	int fd = -1, i, j = 0;
 	char dev[50] = "";
 
 	if (strlen(device)) {
 		strcpy(dev, device);
 
-		if (strstr(dev, "ACM")) {
-			insmod("/lib/modules/cdc-acm.ko");
-			mknod_acm(device);
-		}
-		else {
-			insmod("/lib/modules/usbserial.ko");
-			insmod("/lib/modules/ftdi_sio.ko");
-		}
-		fd = open(dev, O_RDWR | O_NOCTTY);
+		while (fd < 0 && j < 3) {
+			if (strstr(dev, "ACM")) {
+				insmod("/lib/modules/cdc-acm.ko");
+				mknod_acm(device);
+			}
+			else {
+				insmod("/lib/modules/usbserial.ko");
+				insmod("/lib/modules/ftdi_sio.ko");
+			}
+			fd = open(dev, O_RDWR | O_NOCTTY);
 
-		if (fd < 0) {
-			log("Could not open serial port %s!\n", dev);
+			if (fd < 0) {
+				log("Could not open serial port %s! Retries %d\n", dev, j);
+				sleep(5);
+				j++;
+			}
 		}
 	}
 	else {
-		insmod("/lib/modules/usbserial.ko");
-		insmod("/lib/modules/ftdi_sio.ko");
-
-		for (i = 0; i < 3 && fd < 0; i++) {
-			memset(dev, 0, sizeof(dev));
-			sprintf(dev, "/dev/ttyUSB%d", i);
-			fd = open(dev, O_RDWR | O_NOCTTY);
-		}
-
-		if (fd < 0) {
-			insmod("/lib/modules/cdc-acm.ko");
+		while (fd < 0 && j < 3) {
+			insmod("/lib/modules/usbserial.ko");
+			insmod("/lib/modules/ftdi_sio.ko");
 
 			for (i = 0; i < 3 && fd < 0; i++) {
 				memset(dev, 0, sizeof(dev));
-				sprintf(dev, "/dtv/ttyACM%d", i);
-				if (mknod_acm(dev) == 0) {
+				sprintf(dev, "/dev/ttyUSB%d", i);
+				fd = open(dev, O_RDWR | O_NOCTTY);
+			}
+
+			if (fd < 0) {
+				insmod("/lib/modules/cdc-acm.ko");
+
+				for (i = 0; i < 3 && fd < 0; i++) {
+					memset(dev, 0, sizeof(dev));
+					sprintf(dev, "/dtv/ttyACM%d", i);
+					mknod_acm(dev);
 					fd = open(dev, O_RDWR | O_NOCTTY);
 				}
 			}
-		}
 
-		if (fd < 0) {
-			log("Could not find serial port!\n");
+			if (fd < 0) {
+				log("Could not find serial port! Retries %d\n", j);
+				sleep(5);
+				j++;
+			}
 		}
 	}
 
@@ -835,7 +842,8 @@ void* sambiligth_thread(void* params) {
 	int capture_info[20] = { 0 }, panel_size[4] = { 0, 0, 1920, 1080 }, cd_size[2] = { 0, 0 }, win_property[20];
 	unsigned char* buffer, * data, init = 0;
 	unsigned long fps_counter = 0, counter = 0, c, data_size, leds_count, fps_test_remaining_frames = 0, bytesWritten, bytesRemaining;
-	unsigned short header_size = 6, h_border = 0, v_border = 0, h_new_border = 0, v_new_border = 0, scale = 2;
+	unsigned short header_size = 6, scale = 2;
+	short h_border = 0, v_border = 0, h_new_border = 0, v_new_border = 0;
 	clock_t capture_begin, capture_end, fps_begin, fps_end, elapsed;
 	void* frame_buffer = NULL, * out_buffer = NULL;
 	int* out_buffer_info = NULL, * frame_buffer_info = NULL;
@@ -936,7 +944,7 @@ void* sambiligth_thread(void* params) {
 				if (win_property[4] != panel_size[2] / 2) {
 					hCTX.gfx_CaptureFrame(frame_buffer, 0, 2, 0, 0, panel_size[2], panel_size[3], 0, 1, 1, 0);
 					if (init) {
-						usleep(capture_frequency * 2);
+						usleep(300000);
 						hCTX.gfx_ReleasePlane(frame_buffer, 0);
 						continue;
 					}
@@ -1049,7 +1057,6 @@ void* sambiligth_thread(void* params) {
 	}
 
 	if (gfx_lib) {
-		hCTX.gfx_ReleasePlane(frame_buffer, 0);
 		hCTX.MsOS_Dcache_Flush(frame_buffer, frame_buffer_info[1]);
 		if (scale > 1) {
 			hCTX.MsOS_Dcache_Flush(out_buffer, out_buffer_info[1]);
@@ -1232,41 +1239,44 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	}
 
 	log("Sambilight started\n");
-
-	log("H_LEDS: %d, V_LEDS: %d, BOTTOM_GAP: %d, START_OFFSET: %d, COLOR_ORDER: %s, CAPTURE_POS: %d, CLOCKWISE: %d\n", led_config.h_leds_count, led_config.v_leds_count, led_config.bottom_gap, led_config.start_offset, led_config.color_order, led_config.capture_pos, led_config.led_order);
-	log("%dx%d %dms\n", led_config.image_width, led_config.image_height, capture_frequency);
-
-	if (black_border_enabled) {
-		log("Black border detection enabled\n");
+	if (strstr(libpath, "-r") == NULL && fps_test_frames == 0) {
+		log("Library sould be injected with -r!\n");
 	}
+	else {
+		log("H_LEDS: %d, V_LEDS: %d, BOTTOM_GAP: %d, START_OFFSET: %d, COLOR_ORDER: %s, CAPTURE_POS: %d, CLOCKWISE: %d\n", led_config.h_leds_count, led_config.v_leds_count, led_config.bottom_gap, led_config.start_offset, led_config.color_order, led_config.capture_pos, led_config.led_order);
+		log("%dx%d %dms\n", led_config.image_width, led_config.image_height, capture_frequency);
 
-	if (tv_remote_enabled) {
-		log("TV Remote control support enabed\n");
-	}
-
-	if (external_led_enabled) {
-		log("External led control enabed\n");
-	}
-
-	strncpy(path, libpath, PATH_MAX);
-	len = strlen(libpath) - 1;
-	while (path[len] && path[len] != '.') {
-		path[len] = 0;
-		len--;
-	}
-	strncat(path, "config", PATH_MAX);
-	load_profiles_config(path);
-
-	serial = open_serial(device, baudrate);
-	if (serial >= 0) {
-		log("Serial open\n");
-		if (fps_test_frames == 1) {
-			sambiligth_thread(NULL);
-			return;
+		if (black_border_enabled) {
+			log("Black border detection enabled\n");
 		}
 
-		pthread_create(&thread, NULL, &sambiligth_thread, NULL);
-		return;
+		if (tv_remote_enabled) {
+			log("TV Remote control support enabed\n");
+		}
+
+		if (external_led_enabled) {
+			log("External led control enabed\n");
+		}
+		strncpy(path, libpath, PATH_MAX);
+		len = strlen(libpath) - 1;
+		while (path[len] && path[len] != '.') {
+			path[len] = 0;
+			len--;
+		}
+		strncat(path, "config", PATH_MAX);
+		load_profiles_config(path);
+
+		serial = open_serial(device, baudrate);
+		if (serial >= 0) {
+			log("Serial open\n");
+			if (fps_test_frames == 1) {
+				sambiligth_thread(NULL);
+				return;
+			}
+
+			pthread_create(&thread, NULL, &sambiligth_thread, NULL);
+			return;
+		}
 	}
 
 	log("Sambilight ended\n");

@@ -40,7 +40,7 @@ int led_manager_set_state(unsigned char state);
 int led_manager_get_state();
 int led_manager_set_intensity(unsigned int intensity, unsigned int current);
 int led_manager_get_intensity();
-unsigned char led_manager_get_borders(const unsigned char* buffer, unsigned short* h_border, unsigned short* v_border);
+unsigned char led_manager_get_borders(const unsigned char* buffer, short* h_border, short* v_border);
 void led_manager_deinit();
 led_manager_led_t* led_manager_get_leds();
 #endif
