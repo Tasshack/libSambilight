@@ -26,9 +26,9 @@ typedef struct {
 
 	unsigned char state;
 
-	float fsaturation;
-	float fvalue;
-	float fintensity;
+	double fsaturation;
+	double fvalue;
+	double fintensity;
 	short brightness_correction;
 
 	long _x;
@@ -37,9 +37,12 @@ typedef struct {
 	long _width_33;
 	long _width_50;
 	long _width_66;
+	long _width_px;
 	long _height_33;
 	long _height_66;
 	long _height_50;
+	long long _px_address;
+	long long _max_address;
 	unsigned char _r;
 	unsigned char _g;
 	unsigned char _b;
@@ -78,40 +81,40 @@ unsigned char led_manager_correction(unsigned char color, short brightness_corre
 	return color;
 }
 
-void led_manager_get_pixel(const unsigned char* buffer, unsigned char* red, unsigned char* green, unsigned char* blue, long x, long y, unsigned char correction)
+int led_manager_get_pixel(const unsigned char* buffer, unsigned char* red, unsigned char* green, unsigned char* blue, long x, long y, unsigned char correction)
 {
-	if (x >= 0 && x < led_manager.config.image_width && y >= 0 && y < led_manager.config.image_height) {
-		unsigned long address;
-		if (led_manager.config.capture_pos) {
-			address = (y * (led_manager.config.image_width * 4)) + (x * 4);
-		}
-		else {
-			address = ((led_manager.config.image_height - 1 - y) * (led_manager.config.image_width * 4)) + ((led_manager.config.image_width - 1 - x) * 4);
-		}
-
-		if (correction == 1) {
-			*red = led_manager_correction(buffer[address + led_manager._rPos], led_manager.brightness_correction);
-			*green = led_manager_correction(buffer[address + led_manager._gPos], led_manager.brightness_correction);
-			*blue = led_manager_correction(buffer[address + led_manager._bPos], led_manager.brightness_correction);
-		}
-		else {
-			*red = buffer[address + led_manager._rPos];
-			*green = buffer[address + led_manager._gPos];
-			*blue = buffer[address + led_manager._bPos];
-		}
+	if (led_manager.config.capture_pos) {
+		led_manager._px_address = (y * (led_manager._width_px)) + (x * 4);
 	}
 	else {
-		*red = 0;
-		*green = 0;
-		*blue = 0;
+		led_manager._px_address = ((led_manager.config.image_height - 1 - y) * (led_manager._width_px)) + ((led_manager.config.image_width - 1 - x) * 4);
 	}
+
+	if (led_manager._px_address >= 0 && led_manager._px_address < led_manager._max_address) {
+		if (correction == 1) {
+			*red = led_manager_correction(buffer[led_manager._px_address + led_manager._rPos], led_manager.brightness_correction);
+			*green = led_manager_correction(buffer[led_manager._px_address + led_manager._gPos], led_manager.brightness_correction);
+			*blue = led_manager_correction(buffer[led_manager._px_address + led_manager._bPos], led_manager.brightness_correction);
+		}
+		else {
+			*red = buffer[led_manager._px_address + led_manager._rPos];
+			*green = buffer[led_manager._px_address + led_manager._gPos];
+			*blue = buffer[led_manager._px_address + led_manager._bPos];
+		}
+		return 1;
+	}
+	*red = 0;
+	*green = 0;
+	*blue = 0;
+	return 0;
 }
 
 unsigned char led_manager_check_black(const unsigned char* buffer, long x, long y, unsigned char threshold)
 {
-	led_manager_get_pixel(buffer, &led_manager._px_r, &led_manager._px_g, &led_manager._px_b, x, y, 0);
-	if (led_manager._px_r <= threshold && led_manager._px_g <= threshold && led_manager._px_b <= threshold) {
-		return 1;
+	if (led_manager_get_pixel(buffer, &led_manager._px_r, &led_manager._px_g, &led_manager._px_b, x, y, 0)) {
+		if (led_manager._px_r <= threshold && led_manager._px_g <= threshold && led_manager._px_b <= threshold) {
+			return 1;
+		}
 	}
 	return 0;
 }
@@ -141,7 +144,7 @@ unsigned char led_manager_get_borders(const unsigned char* buffer, short* h_bord
 	}
 
 	//led_manager.new_profile.v_padding_percent = ((100 * non_black_x) / led_manager.config.image_width);
-	//led_manager.new_profile.h_padding_percent = ((100 * non_black_y) / led_manager.config.image_height);
+	//led_manager.new_profile.h_padding_percent = ((100 * non_black_y) / led_manager.config.image_height);	
 
 	if (*h_border == -1 || *v_border == -1) {
 		return 0;
@@ -227,7 +230,7 @@ static void led_manager_hsv2rgb(unsigned short hue, unsigned short saturation, u
 	}
 }
 
-static void led_manager_transform(unsigned char* red, unsigned char* green, unsigned char* blue, float saturationGain, float valueGain)
+static void led_manager_transform(unsigned char* red, unsigned char* green, unsigned char* blue, double saturationGain, double valueGain)
 {
 	if (saturationGain != 1.0 || valueGain != 1.0) {
 		unsigned short hue;
@@ -279,7 +282,7 @@ static int led_manager_increment_value(short* currentValue, short newValue, unsi
 int led_manager_calculate_area()
 {
 	unsigned long padded_width, padded_height, vertical_depth, horizontal_depth, index, i, j, overlap_px_x, overlap_px_y, v_padding_px, h_padding_px;
-	float x_area, y_area;
+	double x_area, y_area;
 	v_padding_px = ((led_manager.current_profile.v_padding_percent / 100.0) * led_manager.config.image_width);
 	h_padding_px = ((led_manager.current_profile.h_padding_percent / 100.0) * led_manager.config.image_height);
 
@@ -289,8 +292,8 @@ int led_manager_calculate_area()
 	vertical_depth = ((led_manager.current_profile.vertical_depth_percent / 100.0) * padded_width);
 	horizontal_depth = ((led_manager.current_profile.horizontal_depth_percent / 100.0) * padded_height);
 
-	x_area = (float)padded_width / led_manager.config.h_leds_count;
-	y_area = (float)padded_height / led_manager.config.v_leds_count;
+	x_area = (double)padded_width / led_manager.config.h_leds_count;
+	y_area = (double)padded_height / led_manager.config.v_leds_count;
 
 	overlap_px_x = ((led_manager.current_profile.overlap_percent / 100.0) * x_area);
 	overlap_px_y = ((led_manager.current_profile.overlap_percent / 100.0) * y_area);
@@ -323,8 +326,8 @@ int led_manager_calculate_area()
 			}
 			led_manager.leds[index].y2 = led_manager.leds[index].y1 + horizontal_depth;
 
-			led_manager.leds[index].x1 = floor(x_area * i) + v_padding_px - overlap_px_x;
-			led_manager.leds[index].x2 = ceil((x_area * (i + 1)) - 1) + v_padding_px + overlap_px_x + 1;
+			led_manager.leds[index].x1 = floorf(x_area * i) + v_padding_px - overlap_px_x;
+			led_manager.leds[index].x2 = ceilf((x_area * (i + 1)) - 1) + v_padding_px + overlap_px_x + 1;
 
 			if (led_manager.leds[index].x1 < 0) {
 				led_manager.leds[index].x1 = 0;
@@ -354,8 +357,8 @@ int led_manager_calculate_area()
 			}
 			led_manager.leds[index].x2 = led_manager.leds[index].x1 + vertical_depth;
 
-			led_manager.leds[index].y1 = floor(y_area * i) + h_padding_px - overlap_px_y;
-			led_manager.leds[index].y2 = ceil((y_area * (i + 1)) - 1) + h_padding_px + overlap_px_y;
+			led_manager.leds[index].y1 = floorf(y_area * i) + h_padding_px - overlap_px_y;
+			led_manager.leds[index].y2 = ceilf((y_area * (i + 1)) - 1) + h_padding_px + overlap_px_y;
 
 			if (led_manager.leds[index].y1 < 0) {
 				led_manager.leds[index].y1 = 0;
@@ -365,13 +368,12 @@ int led_manager_calculate_area()
 			}
 		}
 	}
-
 	return 0;
 }
 
 int led_manager_recalculate_profile()
 {
-	if (memcmp(&led_manager.current_profile, &led_manager.new_profile, sizeof(led_manager_profile_t))) {
+	if (memcmp(&led_manager.current_profile, &led_manager.new_profile, sizeof(led_manager_profile_t)) != 0) {
 		unsigned int area_changed = led_manager_increment_value(&led_manager.current_profile.v_padding_percent, led_manager.new_profile.v_padding_percent, 1) != 0;
 		area_changed = led_manager_increment_value(&led_manager.current_profile.h_padding_percent, led_manager.new_profile.h_padding_percent, 1) != 0 || area_changed;
 		area_changed = led_manager_increment_value(&led_manager.current_profile.horizontal_depth_percent, led_manager.new_profile.horizontal_depth_percent, 1) != 0 || area_changed;
@@ -430,9 +432,7 @@ int led_manager_argb8888_to_leds(const unsigned char* buffer, unsigned char* dat
 
 			for (led_manager._x = led_manager.leds[led_manager._i].x1; led_manager._x < led_manager.leds[led_manager._i].x2; led_manager._x++) {
 				for (led_manager._y = led_manager.leds[led_manager._i].y1; led_manager._y < led_manager.leds[led_manager._i].y2; led_manager._y++) {
-					if (led_manager._x >= 0 && led_manager._x < led_manager.config.image_width && led_manager._y >= 0 && led_manager._y < led_manager.config.image_height) {
-						led_manager_get_pixel(buffer, &led_manager._px_r, &led_manager._px_g, &led_manager._px_b, led_manager._x, led_manager._y, 1);
-
+					if (led_manager_get_pixel(buffer, &led_manager._px_r, &led_manager._px_g, &led_manager._px_b, led_manager._x, led_manager._y, 1)) {
 						led_manager._total_r += led_manager._px_r;
 						led_manager._total_g += led_manager._px_g;
 						led_manager._total_b += led_manager._px_b;
@@ -520,9 +520,11 @@ int led_manager_init(const led_manager_config_t* config, const led_manager_profi
 	led_manager._width_33 = led_manager.config.image_width / 3;
 	led_manager._height_33 = led_manager.config.image_height / 3;
 	led_manager._width_66 = led_manager._width_33 * 2;
+	led_manager._width_px = led_manager.config.image_width * 4;
 	led_manager._height_66 = led_manager._height_33 * 2;
 	led_manager._width_50 = led_manager.config.image_width / 2;
 	led_manager._height_50 = led_manager.config.image_height / 2;
+	led_manager._max_address = led_manager.config.image_width * led_manager.config.image_height * 4;
 
 	led_manager_calculate_area();
 
@@ -564,7 +566,7 @@ int led_manager_get_state()
 	return led_manager.state || led_manager.current_intensity;
 }
 
-int led_manager_set_intensity(unsigned int intensity, unsigned int current)
+int led_manager_set_intensity(unsigned short intensity, unsigned int current)
 {
 	if (intensity <= 100) {
 		if (current) {
@@ -598,7 +600,6 @@ int led_manager_print_area(char* buffer)
 		sprintf(buff, "LED %02d: %03d:%03d - %03d:%03d (%03dx%03d %02d)\n", i, led_manager.leds[i].x1, led_manager.leds[i].x2, led_manager.leds[i].y1, led_manager.leds[i].y2, led_manager.leds[i].x2 - led_manager.leds[i].x1, led_manager.leds[i].y2 - led_manager.leds[i].y1, (led_manager.leds[i].x2 - led_manager.leds[i].x1) * (led_manager.leds[i].y2 - led_manager.leds[i].y1));
 		strcat(buffer, buff);
 	}
-	return 0;
 }
 
 led_manager_led_t* led_manager_get_leds() {

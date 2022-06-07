@@ -38,7 +38,7 @@ int led_manager_print_area(char * buffer);
 unsigned int led_manager_get_profile_index();
 int led_manager_set_state(unsigned char state);
 int led_manager_get_state();
-int led_manager_set_intensity(unsigned int intensity, unsigned int current);
+int led_manager_set_intensity(unsigned short intensity, unsigned int current);
 int led_manager_get_intensity();
 unsigned char led_manager_get_borders(const unsigned char* buffer, short* h_border, short* v_border);
 void led_manager_deinit();

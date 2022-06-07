@@ -3,25 +3,28 @@
 
 LIB_NAME=Sambilight
 
-CC=arm-linux-gnueabi-gcc
+#CC=arm-linux-gnueabi-gcc
+CC=~/VDLinux-arm-v7a9v3r1/bin/arm-v7a9v3r1-linux-gnueabi-gcc
 
 OUTDIR?=${PWD}/out-${ARCH}
 
 TARGETS=lib${LIB_NAME}.so
 TARGETS:=$(TARGETS:%=${OUTDIR}/%)
 
-CFLAGS += -fPIC -O2 -std=gnu99 -I../include
+CFLAGS += -fPIC -O2 -std=gnu99
 CFLAGS += -ldl
 
 C_FILES=sambilight.c hook.c
  
 C_FILES+= led_manager.c 
-CFLAGS+= -DLED_MANAGER=1 -march=armv7-a -mfpu=neon-vfpv4 -funsafe-math-optimizations
+CFLAGS+= -DLED_MANAGER=1 
+CFLAGS+= -march=armv7-a -mtune=arm7 -ffast-math -mfpu=vfpv3 -funsafe-math-optimizations -mfloat-abi=softfp 
+
 
 all: ${OUTDIR} ${TARGETS}
     
-${OUTDIR}/lib${LIB_NAME}.so: ${C_FILES} $(wildcard *.h) $(wildcard ../include/*.h)
-	$(CC) $(filter %.c %.cpp,$^) ${CFLAGS}  -shared -Wl,-soname,$@ -o $@
+${OUTDIR}/lib${LIB_NAME}.so: ${C_FILES} $(wildcard *.h)
+	$(CC) $(filter %.c %.cpp,$^) ${CFLAGS} -shared -Wl,-soname,$@ -o $@
 
 ${OUTDIR}:
 	@mkdir -p ${OUTDIR}
