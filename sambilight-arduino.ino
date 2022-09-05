@@ -15,6 +15,8 @@
 
 #if defined(ESP8266)
 #define FASTLED_ESP8266_RAW_PIN_ORDER
+#elif defined(ESP32)
+#define FASTLED_ESP32_RAW_PIN_ORDER
 #endif
 
 #include <Arduino.h>
@@ -47,15 +49,19 @@ void setup() {
     FastLED.setBrightness(BRIGHTNESS);
     FastLED.show();
 
-#if defined(ESP8266)
+#if defined(ESP8266) || defined(ESP32)
     Serial.setRxBufferSize(2048);
 #endif
 
+#if defined(ESP32)
+    Serial.begin(BAUDRATE, SERIAL_8N1, 13, 12); // RX pin will be GPIO13 on ESP32
+#else
     Serial.begin(BAUDRATE);
+#endif
 
 #if defined(ESP8266)
     delay(500);
-    Serial.swap(); // RX pin will be GPIO13
+    Serial.swap(); // RX pin will be GPIO13 on ESP8266
     delay(500);
 #endif
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# (c) Copyright 1996 - 2021, SamyGO
+# (c) Copyright 1996 - 2022, SamyGO
 #
 #
 . /dtv/SGO.env
@@ -14,21 +14,22 @@ BOTTOM_GAP=7;			# Bottom side gap (Top Size - Bottom Size)
 START_OFFSET=68;		# Index of first led (Top Left is zero) (H_LEDS + V_LEDS + (H_LEDS - BOTTOM_GAP / 2))
 
 # Optional Parameters
-CLOCKWISE=1;			# Led order (Set to 0 for anti-clockwise)
-BLACK_BORDER=1;			# Black border detection for automatic profile switching (16:9, 21:9, 4:3, 3:2)
-TV_REMOTE=1;			# Enable control with TV remote buttons (Red, Green, Yellow, Blue)
-EXTERNAL=0;				# On/Off support for remotely connected leds (Handled on USB device)
-BAUDRATE=921600;		# USB Serial baudrate (High baudrate is recommended)
-GFX_LIB=1;				# Capture directly from graphics driver resulting +50 FPS and prevents UI from lagging during capture (Experimental! Tested on F, not required/available on H)
-CAPTURE_FREQ=30;		# Capture frequency in ms, increase this value if your TV having performance issues (Higher the value, lower the refresh rate. Smooting must be handled on USB device)
-CAPTURE_SIZE=5;			# Higher capture size resulting less flickering and more accurate blacks but it affects overall FPS (1=96x54 2=160x90 3=240x135 4=320x180 5=480x270 6=960x540)
-OSD_CAPTURE=1;			# Capture with OSD (Only works with GFX_LIB=1)
+#CLOCKWISE=1;			# Led order (Set to 0 for anti-clockwise)
+#BLACK_BORDER=1;		# Black border detection for automatic profile switching (16:9, 21:9, 4:3, 3:2)
+#TV_REMOTE=1;			# Enable control with TV remote buttons (Red, Green, Yellow, Blue)
+#EXTERNAL=0;			# On/Off support for remotely connected leds (Handled on USB device)
+#BAUDRATE=921600;		# USB Serial baudrate (High baudrate is recommended)
+#GFX_LIB=1;				# Capture directly from graphics driver resulting +50 FPS and prevents UI from lagging during capture (Experimental! Tested on F, not required/available on H)
+#CAPTURE_FREQ=30;		# Capture frequency in ms, increase this value if your TV having performance issues (Higher the value, lower the refresh rate. Smooting must be handled on USB device)
+#CAPTURE_SIZE=5;		# Higher capture size resulting less flickering and more accurate blacks but it affects overall FPS (1=96x54 2=160x90 3=240x135 4=320x180 5=480x270 6=960x540)
+#OSD_CAPTURE=1;			# Capture with OSD (Only works with GFX_LIB=1)
+#FORCE_UPDATE=0;		# Force leds to update even colors are not changed (Required for WLED)
 
 # For Testing
-TEST_FRAMES=0;			# For configuration and performance testing (Set to 1 for single-shot mode)
-TEST_PROFILE=0;			# Profile index for testing (Only for single-shot mode)
-TEST_PATTERN=0;			# Display test pattern for selected profile (Only for single-shot mode)
-TEST_SAVE_CAPTURE=0;	# Save capture as BMP to /dtv/Sambilight.bmp (Only for single-shot mode)
+#TEST_FRAMES=30;		# For configuration and performance testing (Set to 1 for single-shot mode)
+#TEST_PROFILE=0;		# Profile index for testing (Only for single-shot mode)
+#TEST_PATTERN=0;		# Display test pattern for selected profile (Only for single-shot mode)
+#TEST_SAVE_CAPTURE=0;	# Save capture as BMP to /dtv/Sambilight.bmp (Only for single-shot mode)
 ##############################################################################################################################################
 
 

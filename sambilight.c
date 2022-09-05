@@ -9,7 +9,7 @@
  *	(c) 2015
  *
  *  tasshack
- *  (c) 2019 - 2021
+ *  (c) 2019 - 2022
  *
  *  License: GPLv3
  *
@@ -40,7 +40,7 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #define LIB_NAME "Sambilight"
-#define LIB_VERSION "v1.3.0"
+#define LIB_VERSION "v1.3.1"
 #define LIB_TV_MODELS "E/F/H"
 #define LIB_HOOKS sambilight_hooks
 #define hCTX sambilight_hook_ctx
@@ -51,7 +51,7 @@
 #include "util.h"
 #include "jsmn.h"
 
-unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 0, tv_remote_enabled = 1, gfx_lib = 1, test_pattern = 0, default_profile = 0, test_capture = 0, threading = 1;
+unsigned char osd_enabled = 1, black_border_state = 1, black_border_enabled = 1, external_led_state = 1, external_led_enabled = 0, gfx_lib = 1, test_pattern = 0, default_profile = 0, test_capture = 0, threading = 1, force_update = 0, single_shot_mode = 0, fps_test_mode = 0;
 unsigned long fps_test_frames = 0, capture_frequency = 30;
 int serial = -1;
 void* hl;
@@ -894,7 +894,7 @@ void* sambiligth_thread(void* params) {
 		log("Panel size %dx%d\n", panel_size[2], panel_size[3]);
 	}
 
-	gfx_lib = gfx_lib && model != H_SERIES && fps_test_frames != 1 && hCTX.gfx_InitNonGAPlane && hCTX.MApi_MMAP_GetInfo && hCTX.MApi_GOP_DWIN_CaptureOneFrame && hCTX.MApi_GOP_DWIN_GetWinProperty;
+	gfx_lib = gfx_lib && model != H_SERIES && !single_shot_mode && hCTX.gfx_InitNonGAPlane && hCTX.MApi_MMAP_GetInfo && hCTX.MApi_GOP_DWIN_CaptureOneFrame && hCTX.MApi_GOP_DWIN_GetWinProperty;
 
 	if (gfx_lib) {
 		log("gfx_lib enabled\n");
@@ -927,8 +927,8 @@ void* sambiligth_thread(void* params) {
 		memset(buffer, 0, 4 * led_config.image_width * led_config.image_height);
 	}
 
-	if (fps_test_frames > 0) {
-		if (fps_test_frames == 1) {
+	if (fps_test_mode || single_shot_mode) {
+		if (single_shot_mode) {
 			log("Test Started\n");
 			led_manager_set_intensity(100, 1);
 		}
@@ -936,19 +936,21 @@ void* sambiligth_thread(void* params) {
 			log("Test Started for %ld frames\n", fps_test_frames);
 		}
 		fps_test_remaining_frames = fps_test_frames + 1;
+
+		if (single_shot_mode && test_pattern) {
+			log("Render test pattern\n");
+			render_areas(led_manager_get_leds(), leds_count, panel_size[2], panel_size[3]);
+		}
 	}
 
-	if (test_pattern) {
-		log("Render test pattern\n");
-		render_areas(led_manager_get_leds(), leds_count, panel_size[2], panel_size[3]);
+	if (!single_shot_mode) {
+		usleep(10000);
 	}
-
-	usleep(10000);
 	log("Grabbing started\n");
 
 	begin = clock();
 
-	if (fps_test_frames > 1) {
+	if (fps_test_mode) {
 		fps_begin = clock();
 		capture_elapsed = 0;
 		process_elapsed = 0;
@@ -956,7 +958,7 @@ void* sambiligth_thread(void* params) {
 
 	while (1) {
 		if (led_manager_get_state()) {
-			if (fps_test_frames > 1) {
+			if (fps_test_mode) {
 				capture_begin = clock();
 			}
 
@@ -1022,16 +1024,16 @@ void* sambiligth_thread(void* params) {
 				}
 			}
 
-			if (fps_test_frames > 1) {
+			if (fps_test_mode) {
 				capture_elapsed += (clock() - capture_begin);
 				process_begin = clock();
 			}
 
-			if (led_manager_argb8888_to_leds(buffer, &data[header_size])) {
-				if (external_led_enabled) {
-					data[data_size - 1] = external_led_state;
-				}
+			if (external_led_enabled) {
+				data[data_size - 1] = external_led_state;
+			}
 
+			if (led_manager_argb8888_to_leds(buffer, &data[header_size])) {
 				bytesWritten = write(serial, data, data_size);
 
 				fps_counter++;
@@ -1070,28 +1072,35 @@ void* sambiligth_thread(void* params) {
 					}
 				}
 			}
+			else if (force_update) {
+				bytesWritten = write(serial, data, data_size);
+			}
 
-			if (fps_test_frames > 1) {
+			if (fps_test_mode) {
 				process_elapsed += (clock() - process_begin);
 			}
 
-			if (fps_test_frames < 1) {
-				elapsed = clock() - begin;
-				if (elapsed < capture_frequency) {
-					usleep(capture_frequency - elapsed);
-				}
-			}
-			else if (fps_test_frames > 1) {
+			if (fps_test_frames > 0) {
 				fps_test_remaining_frames--;
 				if (fps_test_remaining_frames == 0) {
-					if (fps_test_frames == 1) {
+					if (single_shot_mode) {
 						break;
 					}
+
 					log("FPS: %d (Capture: %dms, Process: %dms)\n", fps_test_frames * 1000 / ((clock() - fps_begin) / 1000), (capture_elapsed / fps_test_frames) / 1000, (process_elapsed / fps_test_frames) / 1000);
 					fps_test_remaining_frames = fps_test_frames;
 					capture_elapsed = 0;
 					process_elapsed = 0;
 					fps_begin = clock();
+				}
+				else if (single_shot_mode) {
+					usleep(50000);
+				}
+			}
+			else {
+				elapsed = clock() - begin;
+				if (elapsed < capture_frequency) {
+					usleep(capture_frequency - elapsed);
 				}
 			}
 
@@ -1102,7 +1111,7 @@ void* sambiligth_thread(void* params) {
 		}
 	}
 
-	if (fps_test_frames == 1 && test_capture) {
+	if (single_shot_mode && test_capture) {
 		save_capture(buffer, led_config.image_width, led_config.image_height, led_config.color_order, led_config.capture_pos);
 	}
 
@@ -1145,15 +1154,16 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	int argc, exit = 0;
 	char* argv[512], * optstr, path[PATH_MAX];
 	char device[50] = "";
+	char model_code = 'X';
+	unsigned char tv_remote_enabled = 1;
 	unsigned long baudrate = 921600;
 	pthread_t thread;
-	pthread_t ipcthread;
 	size_t len;
 
 	argc = getArgCArgV(libpath, argv);
 
 	unlink(LOG_FILE);
-	log("SamyGO "LIB_TV_MODELS" lib"LIB_NAME" "LIB_VERSION" - (c) tasshack 2019 - 2021\n");
+	log("SamyGO "LIB_TV_MODELS" lib"LIB_NAME" "LIB_VERSION" - (c) tasshack 2019 - 2022\n");
 
 	hl = dlopen(0, RTLD_LAZY);
 	if (!hl) {
@@ -1167,12 +1177,15 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 
 	if (hCTX.SdDisplay_CaptureScreenE != NULL) {
 		model = E_SERIES;
+		model_code = 'E';
 	}
 	else if (hCTX.SdDisplay_CaptureScreenF != NULL) {
 		model = F_SERIES;
+		model_code = 'F';
 	}
 	else if (hCTX.SdDisplay_CaptureScreenH != NULL) {
 		model = H_SERIES;
+		model_code = 'H';
 	}
 
 	optstr = getOptArg(argv, argc, "H_LEDS:");
@@ -1200,28 +1213,38 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		strncpy(led_config.color_order, optstr, 3);
 
 	optstr = getOptArg(argv, argc, "CAPTURE_POS:");
-	if (optstr && strlen(optstr)) {
+	if (optstr && strlen(optstr))
 		led_config.capture_pos = atoi(optstr);
-	}
-	else if (model == H_SERIES) {
+	else if (model == H_SERIES)
 		led_config.capture_pos = 1;
-	}
 
 	optstr = getOptArg(argv, argc, "BLACK_BORDER:");
 	if (optstr && strlen(optstr))
 		black_border_enabled = atoi(optstr);
 
 	optstr = getOptArg(argv, argc, "CAPTURE_FREQ:");
-	if (optstr && strlen(optstr))
+	if (optstr && strlen(optstr)) {
 		capture_frequency = atoi(optstr);
+	}
+	else {
+		switch (model) {
+		case E_SERIES:
+			capture_frequency = 30;
+			break;
+		case F_SERIES:
+			capture_frequency = 25;
+			break;
+		case H_SERIES:
+			capture_frequency = 20;
+			break;
+		default:
+			break;
+		}
+	}
 
 	optstr = getOptArg(argv, argc, "TV_REMOTE:");
-	if (optstr && strlen(optstr)) {
+	if (optstr && strlen(optstr))
 		tv_remote_enabled = atoi(optstr);
-	}
-	else if (model == H_SERIES) {
-		tv_remote_enabled = 0;
-	}
 
 	optstr = getOptArg(argv, argc, "EXTERNAL:");
 	if (optstr && strlen(optstr))
@@ -1255,9 +1278,26 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 			led_config.image_height = 1080;
 			break;
 		case 5:
-		default:
 			led_config.image_width = 480;
 			led_config.image_height = 270;
+			break;
+		default:
+			switch (model) {
+			case E_SERIES:
+				led_config.image_width = 240;
+				led_config.image_height = 135;
+				break;
+			case F_SERIES:
+				led_config.image_width = 480;
+				led_config.image_height = 270;
+				break;
+			case H_SERIES:
+				led_config.image_width = 960;
+				led_config.image_height = 540;
+				break;
+			default:
+				break;
+			}
 			break;
 		}
 	}
@@ -1294,10 +1334,24 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	if (optstr && strlen(optstr))
 		test_capture = atoi(optstr);
 
+	optstr = getOptArg(argv, argc, "FORCE_UPDATE:");
+	if (optstr && strlen(optstr))
+		force_update = atoi(optstr);
 
-	if (fps_test_frames == 1) {
-		tv_remote_enabled = 0;
+	if (fps_test_frames > 0) {
+		capture_frequency = 0;
+		force_update = 1;
+		if (fps_test_frames == 1) {
+			single_shot_mode = 1;
+			tv_remote_enabled = 0;
+		}
+		else {
+			fps_test_mode = 1;
+		}
 	}
+
+	if (model == H_SERIES)
+		tv_remote_enabled = 0;
 
 	if (tv_remote_enabled) {
 		if (dyn_sym_tab_init(hl, dyn_hook_fn_tab, ARRAYSIZE(dyn_hook_fn_tab)) >= 0) {
@@ -1306,7 +1360,7 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 		}
 	}
 
-	log("Sambilight started\n");
+	log("Sambilight started on %c Series\n", model_code);
 	log("H_LEDS: %d, V_LEDS: %d, BOTTOM_GAP: %d, START_OFFSET: %d, COLOR_ORDER: %s, CAPTURE_POS: %d, CLOCKWISE: %d\n", led_config.h_leds_count, led_config.v_leds_count, led_config.bottom_gap, led_config.start_offset, led_config.color_order, led_config.capture_pos, led_config.led_order);
 	log("%dx%d %dms\n", led_config.image_width, led_config.image_height, capture_frequency);
 
@@ -1330,7 +1384,7 @@ EXTERN_C void lib_init(void* _h, const char* libpath)
 	strncat(path, "config", PATH_MAX);
 	load_profiles_config(path);
 
-	if (fps_test_frames == 1 || model == E_SERIES) {
+	if (single_shot_mode || model == E_SERIES) {
 		threading = 0;
 	}
 
